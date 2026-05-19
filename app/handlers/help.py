@@ -43,7 +43,7 @@ def _settings_menu_keyboard_for_user(is_admin):
 
     if is_admin:
         rows.append([InlineKeyboardButton("🌍 Languages", callback_data="settings_languages")])
-        rows.append([InlineKeyboardButton("💳 Payment", callback_data="settings_payment")])
+        rows.append([InlineKeyboardButton("📷 QR Payment", callback_data="settings_payment")])
 
     return InlineKeyboardMarkup(rows)
 
@@ -145,7 +145,7 @@ def _settings_payment_package_keyboard(package_credits, has_qr):
         rows.insert(0, [InlineKeyboardButton("👁 View Current QR", callback_data=f"settings_payment_view_{package_credits}")])
         rows.append([InlineKeyboardButton("🗑 Remove QR", callback_data=f"settings_payment_remove_{package_credits}")])
 
-    rows.append([InlineKeyboardButton("⬅️ Back To Payment", callback_data="settings_payment")])
+    rows.append([InlineKeyboardButton("⬅️ Back To QR Payment", callback_data="settings_payment")])
     return InlineKeyboardMarkup(rows)
 
 
@@ -232,7 +232,7 @@ async def settings_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.pop("payment_qr_package", None)
         qr_file_ids = get_payment_qr_file_ids()
         await query.edit_message_text(
-            "💳 Payment QR Setup\n\nChoose a package to upload or replace its QR image:",
+            "📷 QR Payment Setup\n\nChoose a package to upload or replace its QR image:",
             reply_markup=_settings_payment_keyboard(qr_file_ids)
         )
         return

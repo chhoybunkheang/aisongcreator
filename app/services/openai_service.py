@@ -1,3 +1,4 @@
+import base64
 import json
 import re
 from difflib import SequenceMatcher
@@ -10,6 +11,104 @@ from app.config.settings import OPENAI_API_KEY
 # OPENAI CLIENT
 # -----------------------------------
 client = OpenAI(api_key=OPENAI_API_KEY)
+
+
+def _extract_json_object(content):
+    if not content:
+        return {}
+
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError:
+        pass
+
+    match = re.search(r"\{.*\}", content, flags=re.DOTALL)
+    if not match:
+        return {}
+
+    try:
+        return json.loads(match.group(0))
+    except json.JSONDecodeError:
+        return {}
+
+
+def analyze_payment_screenshot(image_bytes, credits, price, payment_method):
+    if not OPENAI_API_KEY or not image_bytes:
+        return {
+            "status": "unavailable",
+            "confidence": 0,
+            "summary": "AI receipt check unavailable.",
+            "amount_found": "",
+            "reference": "",
+            "reasons": [],
+        }
+
+    encoded_image = base64.b64encode(image_bytes).decode("ascii")
+
+    response = client.chat.completions.create(
+        model="gpt-4.1-mini",
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "You review payment receipt screenshots for a Telegram bot. "
+                    "Decide whether the screenshot is likely valid proof of payment, but stay conservative. "
+                    "If the image is unclear, suspicious, incomplete, or does not clearly match the expected amount, return review or reject. "
+                    "Return JSON only with keys: status, confidence, summary, amount_found, reference, reasons. "
+                    "status must be one of approve, review, reject. confidence must be an integer from 0 to 100. "
+                    "reasons must be an array of short strings."
+                ),
+            },
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": (
+                            f"Expected credits: {credits}\n"
+                            f"Expected price: {price}\n"
+                            f"Payment method: {payment_method}\n\n"
+                            "Review this screenshot. Look for visible amount, payment confirmation cues, transaction reference, and whether the screenshot appears complete. "
+                            "Be strict. If anything important is missing or unclear, prefer review instead of approve."
+                        ),
+                    },
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/jpeg;base64,{encoded_image}",
+                        },
+                    },
+                ],
+            },
+        ],
+        temperature=0.1,
+        max_tokens=300,
+    )
+
+    content = (response.choices[0].message.content or "").strip()
+    payload = _extract_json_object(content)
+
+    status = str(payload.get("status") or "review").strip().lower()
+    if status not in {"approve", "review", "reject"}:
+        status = "review"
+
+    try:
+        confidence = int(payload.get("confidence", 0))
+    except (TypeError, ValueError):
+        confidence = 0
+
+    reasons = payload.get("reasons") or []
+    if not isinstance(reasons, list):
+        reasons = [str(reasons)] if reasons else []
+
+    return {
+        "status": status,
+        "confidence": max(0, min(confidence, 100)),
+        "summary": str(payload.get("summary") or "No summary provided.").strip(),
+        "amount_found": str(payload.get("amount_found") or "").strip(),
+        "reference": str(payload.get("reference") or "").strip(),
+        "reasons": [str(item).strip() for item in reasons if str(item).strip()][:3],
+    }
 
 
 def _clean_lyric_lines(lyrics):
@@ -422,7 +521,7 @@ def _format_transcribed_lyrics(text, language=""):
         max_tokens=1400,
     )
 
-    formatted_text = response.choices[0].message.content.strip()
+    formatted_text = (response.choices[0].message.content or "").strip()
     return formatted_text or text
 
 
@@ -485,7 +584,7 @@ def transcribe_lyrics_from_mp3(mp3_path, language=""):
             max_tokens=1200,
         )
 
-        repaired_text = repair_response.choices[0].message.content.strip()
+        repaired_text = (repair_response.choices[0].message.content or "").strip()
         if repaired_text:
             text = repaired_text
 

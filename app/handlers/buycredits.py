@@ -1,3 +1,4 @@
+import asyncio
 from pathlib import Path
 
 from telegram import (
@@ -18,11 +19,13 @@ from app.config.settings import (
     PAYMENT_ACCOUNT_NAME,
     PAYMENT_ACCOUNT_NUMBER,
     PAYMENT_QR_IMAGE,
+    PAYMENT_SCREENSHOT_AI_ENABLED,
 )
 from app.database.queries import (
     get_payment_qr_file_id,
     update_payment_qr_file_id,
 )
+from app.services.openai_service import analyze_payment_screenshot
 from app.utils.helpers import replace_flow_message
 
 
@@ -35,6 +38,97 @@ def _package_details(package_code):
     }
 
     return package_map.get(package_code, (100, "$5"))
+
+
+def _payment_method_details(method_code):
+
+    method_map = {
+        "qr": "Scan QR",
+        "bank": "Bank App",
+    }
+
+    return method_map.get(method_code, "Scan QR")
+
+
+def _package_price(credits):
+
+    price_map = {
+        10: "$1",
+        50: "$3",
+        100: "$5",
+    }
+
+    return price_map.get(credits, "$5")
+
+
+def _format_ai_review(review):
+    status_map = {
+        "approve": "Approve",
+        "review": "Manual Review",
+        "reject": "Reject",
+        "unavailable": "Unavailable",
+    }
+
+    lines = [
+        "🤖 AI Receipt Check",
+        f"Recommendation: {status_map.get(review.get('status'), 'Manual Review')}",
+        f"Confidence: {review.get('confidence', 0)}%",
+        f"Summary: {review.get('summary', 'No summary provided.')}",
+    ]
+
+    amount_found = review.get("amount_found")
+    if amount_found:
+        lines.append(f"Amount found: {amount_found}")
+
+    reference = review.get("reference")
+    if reference:
+        lines.append(f"Reference: {reference}")
+
+    reasons = review.get("reasons") or []
+    if reasons:
+        lines.append("Checks: " + " | ".join(reasons))
+
+    return "\n".join(lines)
+
+
+def _payment_method_markup(package_code):
+
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton(
+                "📷 Scan QR",
+                callback_data=f"payment_qr_{package_code}",
+            ),
+            InlineKeyboardButton(
+                "🏦 Bank App",
+                callback_data=f"payment_bank_{package_code}",
+            ),
+        ],
+        [InlineKeyboardButton("⬅️ Back", callback_data="buycredits_menu")],
+    ])
+
+
+async def _analyze_receipt_photo(photo, credits, payment_method):
+    if not PAYMENT_SCREENSHOT_AI_ENABLED:
+        return {
+            "status": "unavailable",
+            "confidence": 0,
+            "summary": "AI receipt check is disabled.",
+            "amount_found": "",
+            "reference": "",
+            "reasons": [],
+        }
+
+    telegram_file = await photo.get_file()
+    image_bytes = await telegram_file.download_as_bytearray()
+
+    return await asyncio.to_thread(
+        analyze_payment_screenshot,
+        bytes(image_bytes),
+        credits,
+        _package_price(credits),
+        payment_method,
+    )
 
 
 async def _safe_delete_message(message):
@@ -95,6 +189,15 @@ async def _send_payment_qr(message, credits, price):
 # -----------------------------------
 async def buy_credits(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
+    message = update.message
+    if message is None:
+        return
+
+    user_data = context.user_data
+    if user_data is not None:
+        user_data.pop("buy_credits", None)
+        user_data.pop("buy_credits_method", None)
+
     keyboard = [
 
         [
@@ -123,7 +226,7 @@ async def buy_credits(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await replace_flow_message(
         context,
-        update.message.reply_text,
+        message.reply_text,
         "💎 Buy Credits\n\n"
         "Choose a package:",
         reply_markup=reply_markup,
@@ -137,14 +240,57 @@ async def buy_credits(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def payment_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     query = update.callback_query
+    if query is None:
+        return
+
+    source_message = query.message
+    if source_message is None:
+        return
+
+    query_data = query.data or ""
+
+    user_data = context.user_data
+    if user_data is None:
+        return
+
+    if query_data == "buycredits_menu":
+        await query.answer()
+        await query.edit_message_text(
+            "💎 Buy Credits\n\nChoose a package:",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("10 Credits - $1", callback_data="buy_10")],
+                [InlineKeyboardButton("50 Credits - $3", callback_data="buy_50")],
+                [InlineKeyboardButton("100 Credits - $5", callback_data="buy_100")],
+            ]),
+        )
+        return
+
+    if query_data.startswith("buy_"):
+        await query.answer()
+        credits, price = _package_details(query_data)
+        await query.edit_message_text(
+            f"💳 Payment Options\n\n"
+            f"Package: {credits} Credits\n"
+            f"Price: {price}\n\n"
+            "Choose how you want to pay:",
+            reply_markup=_payment_method_markup(query_data),
+        )
+        return
+
+    if not query_data.startswith("payment_"):
+        return
+
+    _, payment_method, package_code = query_data.split("_", 2)
+    credits, price = _package_details(package_code)
+
+    if payment_method == "bank":
+        await query.answer("Coming Soon", show_alert=True)
+        return
 
     await query.answer()
 
-    package = query.data
-    credits, price = _package_details(package)
-    source_message = query.message
-
-    context.user_data["buy_credits"] = credits
+    user_data["buy_credits"] = credits
+    user_data["buy_credits_method"] = "qr"
 
     qr_sent = await _send_payment_qr(source_message, credits, price)
 
@@ -173,54 +319,82 @@ async def payment_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Note: no QR image is configured yet. Set PAYMENT_QR_IMAGE in .env to show it here."
         )
 
-    await context.bot.send_message(
-        chat_id=source_message.chat_id,
-        text=payment_text,
-    )
+    source_chat = getattr(source_message, "chat", None)
+    if source_chat is None:
+        return
+
+    await context.bot.send_message(chat_id=source_chat.id, text=payment_text)
 # -----------------------------------
 # RECEIVE PAYMENT SCREENSHOT
 # -----------------------------------
 async def receive_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-    # Check if photo exists
-    if not update.message.photo:
+    message = update.message
+    if message is None:
+        return
 
-        await update.message.reply_text(
+    user_data = context.user_data
+    if user_data is None:
+        return
+
+    # Check if photo exists
+    if not message.photo:
+
+        await message.reply_text(
             "❌ Please upload a payment screenshot."
         )
 
         return
 
-    pending_qr_package = context.user_data.get("payment_qr_package")
-    if update.effective_user.id == ADMIN_ID and pending_qr_package:
-        qr_photo = update.message.photo[-1]
-        update_payment_qr_file_id(pending_qr_package, qr_photo.file_id)
-        context.user_data.pop("payment_qr_package", None)
+    effective_user = update.effective_user
+    if effective_user is None:
+        return
 
-        await update.message.reply_text(
+    pending_qr_package = user_data.get("payment_qr_package")
+    if effective_user.id == ADMIN_ID and pending_qr_package:
+        qr_photo = message.photo[-1]
+        update_payment_qr_file_id(pending_qr_package, qr_photo.file_id)
+        user_data.pop("payment_qr_package", None)
+
+        await message.reply_text(
             f"✅ QR image saved for {pending_qr_package} credits.\n\n"
             "Users who choose this package will now see this QR image.",
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("💳 Back To Payment Setup", callback_data="settings_payment")],
+                [InlineKeyboardButton("📷 Back To QR Payment Setup", callback_data="settings_payment")],
             ])
         )
         return
 
-    telegram_id = update.effective_user.id
-    username = update.effective_user.first_name
+    telegram_id = effective_user.id
+    username = effective_user.first_name
 
-    credits = context.user_data.get("buy_credits", 0)
+    credits = user_data.get("buy_credits", 0)
+    payment_method = _payment_method_details(user_data.get("buy_credits_method", "qr"))
 
     # Get largest image
-    photo = update.message.photo[-1]
+    photo = message.photo[-1]
 
     file_id = photo.file_id
+
+    try:
+        ai_review = await _analyze_receipt_photo(photo, credits, payment_method)
+    except Exception:
+        ai_review = {
+            "status": "unavailable",
+            "confidence": 0,
+            "summary": "AI receipt check failed.",
+            "amount_found": "",
+            "reference": "",
+            "reasons": [],
+        }
 
     caption = (
         f"💳 New Payment Request\n\n"
         f"👤 User: {username}\n"
         f"🆔 Telegram ID: {telegram_id}\n"
-        f"💎 Requested Credits: {credits}"
+        f"💰 Payment Method: {payment_method}\n"
+        f"💎 Requested Credits: {credits}\n\n"
+        f"{_format_ai_review(ai_review)}"
     )
 
     # Send to admin
@@ -242,9 +416,12 @@ async def receive_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ])
     )
 
-    await update.message.reply_text(
+    user_data.pop("buy_credits", None)
+    user_data.pop("buy_credits_method", None)
+
+    await message.reply_text(
         "✅ Payment screenshot submitted.\n\n"
-        "Please wait for admin approval."
+        "The receipt was sent for AI pre-check and admin approval."
     )
 
 # -----------------------------------
@@ -257,7 +434,7 @@ buycredits_handler = MessageHandler(
 
 payment_handler = CallbackQueryHandler(
     payment_info,
-    pattern="^buy_"
+    pattern=r"^(buy_|payment_|buycredits_menu$)"
 )
 receipt_handler = MessageHandler(
     filters.PHOTO,
