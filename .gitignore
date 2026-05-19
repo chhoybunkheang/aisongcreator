@@ -1,0 +1,21 @@
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Environment and local data
+.env
+data/users.db
+data/logs.txt
+media/temp/
+media/generated/
+
+# Local temp and test artifacts
+temp/
+*.mp4
+*.png
+*.mp3

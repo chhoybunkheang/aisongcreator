@@ -1,0 +1,170 @@
+import json
+from textwrap import wrap
+
+from moviepy import AudioFileClip, CompositeVideoClip, ImageClip, TextClip
+
+VIDEO_HEIGHT = 540
+VIDEO_FPS = 20
+VIDEO_BITRATE = "900k"
+AUDIO_BITRATE = "96k"
+VIDEO_PRESET = "veryfast"
+SUBTITLE_WIDTH_RATIO = 0.82
+SUBTITLE_BOTTOM_MARGIN = 70
+SUBTITLE_WRAP = 42
+SUBTITLE_TEXT_COLOR = "white"
+
+
+def _build_subtitle_lines(lyrics):
+    if not lyrics:
+        return []
+
+    subtitle_lines = []
+    raw_lines = [line.strip() for line in str(lyrics).splitlines()]
+
+    for raw_line in raw_lines:
+        if not raw_line:
+            continue
+
+        wrapped_parts = wrap(" ".join(raw_line.split()), width=SUBTITLE_WRAP) or [raw_line]
+        current_group = []
+
+        for part in wrapped_parts:
+            current_group.append(part)
+            if len(current_group) == 2:
+                subtitle_lines.append("\n".join(current_group))
+                current_group = []
+
+        if current_group:
+            subtitle_lines.append("\n".join(current_group))
+
+    return subtitle_lines
+
+
+def _load_subtitle_segments(subtitle_timing):
+    if not subtitle_timing:
+        return []
+
+    if isinstance(subtitle_timing, list):
+        return subtitle_timing
+
+    try:
+        parsed = json.loads(subtitle_timing)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return []
+
+    return parsed if isinstance(parsed, list) else []
+
+
+def _build_subtitle_clips(subtitle_lines, duration, frame_size):
+    if not subtitle_lines:
+        return []
+
+    frame_width, frame_height = frame_size
+    segment_duration = max(duration / len(subtitle_lines), 0.1)
+    subtitle_width = int(frame_width * SUBTITLE_WIDTH_RATIO)
+    font_size = max(int(frame_height * 0.055), 28)
+
+    subtitle_clips = []
+    for index, subtitle_line in enumerate(subtitle_lines):
+        start_time = index * segment_duration
+        remaining = max(duration - start_time, 0.1)
+
+        subtitle_clip = TextClip(
+            text=subtitle_line,
+            font_size=font_size,
+            color=SUBTITLE_TEXT_COLOR,
+            stroke_color="black",
+            stroke_width=1,
+            method="caption",
+            size=(subtitle_width, None),
+            margin=(28, 18),
+            text_align="center",
+        )
+        subtitle_y = max(frame_height - SUBTITLE_BOTTOM_MARGIN - subtitle_clip.h, 0)
+        subtitle_clips.append(
+            subtitle_clip
+            .with_start(start_time)
+            .with_duration(min(segment_duration, remaining))
+            .with_position(("center", subtitle_y))
+        )
+
+    return subtitle_clips
+
+
+def _build_timed_subtitle_clips(subtitle_segments, duration, frame_size):
+    if not subtitle_segments:
+        return []
+
+    frame_width, frame_height = frame_size
+    subtitle_width = int(frame_width * SUBTITLE_WIDTH_RATIO)
+    font_size = max(int(frame_height * 0.055), 28)
+
+    subtitle_clips = []
+    for segment in subtitle_segments:
+        subtitle_text = str(segment.get("text") or "").strip()
+        start_time = float(segment.get("start", 0.0) or 0.0)
+        end_time = float(segment.get("end", start_time) or start_time)
+        if not subtitle_text or end_time <= start_time:
+            continue
+
+        subtitle_clip = TextClip(
+            text=subtitle_text,
+            font_size=font_size,
+            color=SUBTITLE_TEXT_COLOR,
+            stroke_color="black",
+            stroke_width=1,
+            method="caption",
+            size=(subtitle_width, None),
+            margin=(28, 18),
+            text_align="center",
+        )
+        subtitle_y = max(frame_height - SUBTITLE_BOTTOM_MARGIN - subtitle_clip.h, 0)
+        subtitle_clips.append(
+            subtitle_clip
+            .with_start(max(start_time, 0.0))
+            .with_duration(min(end_time - start_time, max(duration - start_time, 0.1)))
+            .with_position(("center", subtitle_y))
+        )
+
+    return subtitle_clips
+
+
+def create_music_video(audio_path, image_path, output_path, lyrics=None, subtitle_timing=None, subtitles_enabled=True):
+    audio = AudioFileClip(audio_path)
+
+    image = (
+        ImageClip(image_path)
+        .with_duration(audio.duration)
+        .resized(height=VIDEO_HEIGHT)
+    )
+
+    subtitle_clips = []
+    video = image.with_audio(audio)
+
+    try:
+        if subtitles_enabled:
+            subtitle_segments = _load_subtitle_segments(subtitle_timing)
+            subtitle_clips = _build_timed_subtitle_clips(subtitle_segments, audio.duration, image.size)
+            if not subtitle_clips:
+                subtitle_lines = _build_subtitle_lines(lyrics)
+                subtitle_clips = _build_subtitle_clips(subtitle_lines, audio.duration, image.size)
+            if subtitle_clips:
+                video = CompositeVideoClip([video, *subtitle_clips]).with_audio(audio)
+
+        video.write_videofile(
+            output_path,
+            fps=VIDEO_FPS,
+            codec="libx264",
+            audio_codec="aac",
+            bitrate=VIDEO_BITRATE,
+            audio_bitrate=AUDIO_BITRATE,
+            preset=VIDEO_PRESET,
+        )
+    finally:
+        video.close()
+        image.close()
+        audio.close()
+        for subtitle_clip in subtitle_clips:
+            subtitle_clip.close()
+
+    return output_path
