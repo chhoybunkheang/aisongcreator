@@ -4,6 +4,86 @@ from contextlib import suppress
 from telegram import error as tg_error
 from telegram.constants import ChatAction
 
+FLOW_MESSAGE_STATE_KEYS = (
+	"active_flow_message_id",
+	"song_flow_message_id",
+	"settings_flow_message_id",
+	"mysongs_flow_message_id",
+	"start_flow_message_id",
+	"buycredits_flow_message_id",
+)
+
+
+def _tracked_message_parts(tracked_value, fallback_chat_id=None):
+	if isinstance(tracked_value, dict):
+		return tracked_value.get("chat_id", fallback_chat_id), tracked_value.get("message_id")
+
+	return fallback_chat_id, tracked_value
+
+
+async def safe_delete_message(message):
+	if message is None:
+		return
+
+	try:
+		await message.delete()
+	except tg_error.BadRequest:
+		pass
+
+
+async def clear_tracked_flow_messages(context, keep_state_key=None, chat_id=None):
+	chat_data = context.chat_data if context.chat_data is not None else None
+	if not chat_data:
+		return
+
+	bot = getattr(context, "bot", None)
+	if bot is None:
+		return
+
+	for state_key in FLOW_MESSAGE_STATE_KEYS:
+		if state_key == keep_state_key:
+			continue
+
+		tracked_value = chat_data.pop(state_key, None)
+		tracked_chat_id, message_id = _tracked_message_parts(tracked_value, chat_id)
+		if message_id is None:
+			continue
+		if tracked_chat_id is None:
+			continue
+
+		with suppress(tg_error.BadRequest, tg_error.Forbidden):
+			await bot.delete_message(chat_id=tracked_chat_id, message_id=message_id)
+
+
+async def replace_flow_message(context, send_callback, *args, state_key="active_flow_message_id", **kwargs):
+	chat_data = context.chat_data if context.chat_data is not None else {}
+	bot = getattr(context, "bot", None)
+	chat_id = kwargs.get("chat_id")
+
+	await clear_tracked_flow_messages(context, keep_state_key=state_key, chat_id=chat_id)
+	previous_chat_id, previous_message_id = _tracked_message_parts(chat_data.get(state_key), chat_id)
+
+	if previous_message_id is not None:
+		if bot is not None and previous_chat_id is not None:
+			with suppress(tg_error.BadRequest, tg_error.Forbidden):
+				await bot.delete_message(chat_id=previous_chat_id, message_id=previous_message_id)
+
+	sent_message = await send_callback(*args, **kwargs)
+	sent_chat = getattr(sent_message, "chat", None)
+	sent_chat_id = getattr(sent_chat, "id", None)
+	chat_data[state_key] = {
+		"chat_id": sent_chat_id,
+		"message_id": sent_message.message_id,
+	}
+	return sent_message
+
+
+def clear_flow_message_tracking(context, state_key="active_flow_message_id"):
+	if context.chat_data is None:
+		return
+
+	context.chat_data.pop(state_key, None)
+
 
 async def _safe_edit_progress(message, text):
 	try:

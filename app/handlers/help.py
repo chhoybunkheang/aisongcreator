@@ -18,6 +18,7 @@ from app.database.queries import (
     reset_user_song_data,
     update_enabled_song_languages,
 )
+from app.utils.helpers import replace_flow_message
 
 
 def _language_flag(language):
@@ -163,9 +164,12 @@ def _deletable_items(telegram_id, item_type):
 
 async def settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     is_admin = update.effective_user.id == ADMIN_ID
-    await update.message.reply_text(
+    await replace_flow_message(
+        context,
+        update.message.reply_text,
         "⚙️ Settings\n\nChoose an option:",
-        reply_markup=_settings_menu_keyboard_for_user(is_admin)
+        reply_markup=_settings_menu_keyboard_for_user(is_admin),
+        state_key="settings_flow_message_id",
     )
 
 

@@ -37,6 +37,8 @@ from app.services.openai_service import (
 )
 from app.services.video_service import create_music_video
 from app.utils.helpers import (
+    clear_flow_message_tracking,
+    replace_flow_message,
     retry_telegram_call,
     send_audio_with_status,
     send_photo_with_status,
@@ -160,7 +162,12 @@ async def my_songs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
 
     if not visible_songs:
-        await update.message.reply_text("You don't have any songs yet.")
+        await replace_flow_message(
+            context,
+            update.message.reply_text,
+            "You don't have any songs yet.",
+            state_key="mysongs_flow_message_id",
+        )
         return
 
     keyboard = []
@@ -172,10 +179,12 @@ async def my_songs(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         ])
 
-    await retry_telegram_call(
+    await replace_flow_message(
+        context,
         update.message.reply_text,
         "Your Songs:",
-        reply_markup=InlineKeyboardMarkup(keyboard)
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        state_key="mysongs_flow_message_id",
     )
 
 
@@ -220,11 +229,16 @@ async def song_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     markup = _next_step_markup(song)
     if markup:
-        await context.bot.send_message(
+        await replace_flow_message(
+            context,
+            context.bot.send_message,
             chat_id=query.message.chat_id,
             text="What do you want to generate?",
-            reply_markup=markup
+            reply_markup=markup,
+            state_key="mysongs_flow_message_id",
         )
+    else:
+        clear_flow_message_tracking(context, state_key="mysongs_flow_message_id")
 
 
 # -----------------------------------
@@ -297,12 +311,16 @@ async def ms_gen_mp3(update: Update, context: ContextTypes.DEFAULT_TYPE):
         song = get_song_by_id(song_id)
         markup = _next_step_markup(song)
         if markup:
-            await context.bot.send_message(
+            await replace_flow_message(
+                context,
+                context.bot.send_message,
                 chat_id=query.message.chat_id,
                 text="What do you want to generate next?",
-                reply_markup=markup
+                reply_markup=markup,
+                state_key="mysongs_flow_message_id",
             )
         else:
+            clear_flow_message_tracking(context, state_key="mysongs_flow_message_id")
             await context.bot.send_message(chat_id=query.message.chat_id, text="All done!")
 
     except Exception as e:
@@ -362,12 +380,16 @@ async def ms_gen_cover(update: Update, context: ContextTypes.DEFAULT_TYPE):
         song = get_song_by_id(song_id)
         markup = _next_step_markup(song)
         if markup:
-            await context.bot.send_message(
+            await replace_flow_message(
+                context,
+                context.bot.send_message,
                 chat_id=query.message.chat_id,
                 text="What do you want to generate next?",
-                reply_markup=markup
+                reply_markup=markup,
+                state_key="mysongs_flow_message_id",
             )
         else:
+            clear_flow_message_tracking(context, state_key="mysongs_flow_message_id")
             await context.bot.send_message(chat_id=query.message.chat_id, text="All done!")
 
     except Exception as e:
@@ -499,11 +521,13 @@ async def ms_gen_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
             user = get_user(query.from_user.id)
 
         if subtitles_enabled and user:
+            clear_flow_message_tracking(context, state_key="mysongs_flow_message_id")
             await context.bot.send_message(
                 chat_id=query.message.chat_id,
                 text=f"All done!\n\n💎 Remaining Credits: {user.credits}"
             )
         else:
+            clear_flow_message_tracking(context, state_key="mysongs_flow_message_id")
             await context.bot.send_message(chat_id=query.message.chat_id, text="All done!")
 
     except Exception as e:
@@ -525,6 +549,7 @@ async def ms_gen_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def ms_skip(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await _safe_answer(query)
+    clear_flow_message_tracking(context, state_key="mysongs_flow_message_id")
     await query.edit_message_text("Okay! Skipped.")
 
 
@@ -537,16 +562,23 @@ async def my_lyrics(update: Update, context: ContextTypes.DEFAULT_TYPE):
     songs_with_lyrics = [s for s in songs if s.lyrics]
 
     if not songs_with_lyrics:
-        await retry_telegram_call(update.message.reply_text, "You don't have any lyrics yet.")
+        await replace_flow_message(
+            context,
+            update.message.reply_text,
+            "You don't have any lyrics yet.",
+            state_key="mysongs_flow_message_id",
+        )
         return
 
     keyboard = [[
         InlineKeyboardButton(_lyrics_list_label(s), callback_data=f"lyr_{s.id}")
     ] for s in songs_with_lyrics]
-    await retry_telegram_call(
+    await replace_flow_message(
+        context,
         update.message.reply_text,
         "Your Lyrics — tap to read:",
-        reply_markup=InlineKeyboardMarkup(keyboard)
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        state_key="mysongs_flow_message_id",
     )
 
 
@@ -571,7 +603,13 @@ async def lyrics_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(text) > 4096:
         text = text[:4090] + "\n\n..."
 
-    await context.bot.send_message(chat_id=query.message.chat_id, text=text)
+    await replace_flow_message(
+        context,
+        context.bot.send_message,
+        chat_id=query.message.chat_id,
+        text=text,
+        state_key="mysongs_flow_message_id",
+    )
 
 
 # -----------------------------------
@@ -592,7 +630,12 @@ async def my_mp3(update: Update, context: ContextTypes.DEFAULT_TYPE):
     songs_with_mp3 = [s for s in songs if s.mp3_path and os.path.exists(s.mp3_path)]
 
     if not songs_with_mp3:
-        await retry_telegram_call(update.message.reply_text, "You don't have any generated MP3s yet.")
+        await replace_flow_message(
+            context,
+            update.message.reply_text,
+            "You don't have any generated MP3s yet.",
+            state_key="mysongs_flow_message_id",
+        )
         return
 
     keyboard = [[
@@ -601,10 +644,12 @@ async def my_mp3(update: Update, context: ContextTypes.DEFAULT_TYPE):
             callback_data=f"mp3_{s.id}"
         )
     ] for s in songs_with_mp3]
-    await retry_telegram_call(
+    await replace_flow_message(
+        context,
         update.message.reply_text,
         "Your MP3s — tap a song to choose an action:",
-        reply_markup=InlineKeyboardMarkup(keyboard)
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        state_key="mysongs_flow_message_id",
     )
 
 
@@ -624,6 +669,7 @@ async def mp3_actions(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Choose what you want to do with \"{song.topic}\":",
             reply_markup=_mp3_action_markup(song)
         )
+        context.chat_data["mysongs_flow_message_id"] = query.message.message_id
         return
 
     cover_missing = not (song.cover_path and os.path.exists(song.cover_path))
@@ -637,6 +683,7 @@ async def mp3_actions(update: Update, context: ContextTypes.DEFAULT_TYPE):
         message,
         reply_markup=_mp3_action_markup(song)
     )
+    context.chat_data["mysongs_flow_message_id"] = query.message.message_id
 
 
 async def mp3_video_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -664,6 +711,7 @@ async def mp3_video_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
             InlineKeyboardButton("❌ No", callback_data=f"ms_skip_{song.id}"),
         ]])
     )
+    context.chat_data["mysongs_flow_message_id"] = query.message.message_id
 
 
 async def play_mp3(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -745,6 +793,7 @@ async def ms_receive_uploaded_cover(update: Update, context: ContextTypes.DEFAUL
             InlineKeyboardButton("❌ No", callback_data=f"ms_skip_{song.id}"),
         ]])
     )
+    clear_flow_message_tracking(context, state_key="mysongs_flow_message_id")
 
 
 async def mp3_to_lyrics(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -814,16 +863,23 @@ async def my_mp4(update: Update, context: ContextTypes.DEFAULT_TYPE):
     songs_with_video = [s for s in songs if s.video_path and os.path.exists(s.video_path)]
 
     if not songs_with_video:
-        await retry_telegram_call(update.message.reply_text, "You don't have any generated videos yet.")
+        await replace_flow_message(
+            context,
+            update.message.reply_text,
+            "You don't have any generated videos yet.",
+            state_key="mysongs_flow_message_id",
+        )
         return
 
     keyboard = [[
         InlineKeyboardButton(_mp4_list_label(s), callback_data=f"watchvid_{s.id}")
     ] for s in songs_with_video]
-    await retry_telegram_call(
+    await replace_flow_message(
+        context,
         update.message.reply_text,
         "Your Videos — tap to watch:",
-        reply_markup=InlineKeyboardMarkup(keyboard)
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        state_key="mysongs_flow_message_id",
     )
 
 
@@ -850,13 +906,18 @@ async def watch_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if song.mp3_path and os.path.exists(song.mp3_path) and song.cover_path and os.path.exists(song.cover_path):
         button_text = "Update Subtitles" if song.subtitle_timing else "Add Subtitle"
-        await context.bot.send_message(
+        await replace_flow_message(
+            context,
+            context.bot.send_message,
             chat_id=query.message.chat_id,
             text="Video actions:",
             reply_markup=InlineKeyboardMarkup([[
                 InlineKeyboardButton(button_text, callback_data=f"vidsub_{song.id}"),
-            ]])
+            ]]),
+            state_key="mysongs_flow_message_id",
         )
+    else:
+        clear_flow_message_tracking(context, state_key="mysongs_flow_message_id")
 
 
 async def add_subtitle_to_video(update: Update, context: ContextTypes.DEFAULT_TYPE):

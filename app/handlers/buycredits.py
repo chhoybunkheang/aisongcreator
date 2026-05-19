@@ -5,6 +5,7 @@ from telegram import (
     InlineKeyboardMarkup,
     Update,
 )
+from telegram import error as tg_error
 from telegram.ext import (
     CallbackQueryHandler,
     ContextTypes,
@@ -22,6 +23,7 @@ from app.database.queries import (
     get_payment_qr_file_id,
     update_payment_qr_file_id,
 )
+from app.utils.helpers import replace_flow_message
 
 
 def _package_details(package_code):
@@ -33,6 +35,14 @@ def _package_details(package_code):
     }
 
     return package_map.get(package_code, (100, "$5"))
+
+
+async def _safe_delete_message(message):
+
+    try:
+        await message.delete()
+    except tg_error.BadRequest:
+        pass
 
 
 async def _send_payment_qr(message, credits, price):
@@ -111,10 +121,13 @@ async def buy_credits(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    await update.message.reply_text(
+    await replace_flow_message(
+        context,
+        update.message.reply_text,
         "💎 Buy Credits\n\n"
         "Choose a package:",
-        reply_markup=reply_markup
+        reply_markup=reply_markup,
+        state_key="buycredits_flow_message_id",
     )
 
 
@@ -129,10 +142,13 @@ async def payment_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     package = query.data
     credits, price = _package_details(package)
+    source_message = query.message
 
     context.user_data["buy_credits"] = credits
 
-    qr_sent = await _send_payment_qr(query.message, credits, price)
+    qr_sent = await _send_payment_qr(source_message, credits, price)
+
+    await _safe_delete_message(source_message)
 
     if qr_sent:
         return
@@ -157,7 +173,10 @@ async def payment_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Note: no QR image is configured yet. Set PAYMENT_QR_IMAGE in .env to show it here."
         )
 
-    await query.message.reply_text(payment_text)
+    await context.bot.send_message(
+        chat_id=source_message.chat_id,
+        text=payment_text,
+    )
 # -----------------------------------
 # RECEIVE PAYMENT SCREENSHOT
 # -----------------------------------

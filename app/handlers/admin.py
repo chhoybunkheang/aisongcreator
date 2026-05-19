@@ -29,10 +29,6 @@ async def _approve_payment_request(message, bot, user_id, credits):
         )
     )
 
-    await message.reply_text(
-        f"✅ Added {credits} credits to {user_id}"
-    )
-
 
 def _payment_status_text(status_text, actor_name):
 
@@ -61,12 +57,6 @@ async def _reject_payment_request(message, bot, user_id):
             "Please check your payment screenshot and contact admin if needed."
         )
     )
-
-    await message.reply_text(
-        f"❌ Rejected payment request for {user_id}"
-    )
-
-
 # -----------------------------------
 # APPROVE PAYMENT
 # -----------------------------------
@@ -92,6 +82,9 @@ async def approve_payment(
         user_id = context.args[0]
         credits = int(context.args[1])
         await _approve_payment_request(update.message, context.bot, user_id, credits)
+        await update.message.reply_text(
+            f"✅ Added {credits} credits to {user_id}"
+        )
 
     except Exception:
 

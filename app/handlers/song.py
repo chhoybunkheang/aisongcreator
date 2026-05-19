@@ -44,6 +44,8 @@ from app.states.song_states import (
     UPLOAD_COVER,
 )
 from app.utils.helpers import (
+    clear_flow_message_tracking,
+    replace_flow_message,
     send_audio_with_status,
     send_photo_with_status,
     send_video_with_status,
@@ -154,9 +156,12 @@ async def create_song(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("📝 My Lyrics", callback_data="type_mylyrics")],
         [InlineKeyboardButton("📋 Past Lyric", callback_data="type_paste")],
     ])
-    await update.message.reply_text(
+    await replace_flow_message(
+        context,
+        update.message.reply_text,
         f"💎 Credits: {user.credits}\n\nChoose how you want to create your song:",
-        reply_markup=keyboard
+        reply_markup=keyboard,
+        state_key="song_flow_message_id",
     )
     return CHOOSE_TYPE
 
@@ -171,11 +176,13 @@ async def choose_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if query.data == "type_new":
         context.user_data.clear()
+        context.chat_data["song_flow_message_id"] = query.message.message_id
         await query.edit_message_text("🎼 What music style do you want?\n\nExample:\n- Remix\n- Rap\n- Romantic\n- Sad Song")
         return STYLE
 
     if query.data == "type_paste":
         context.user_data.clear()
+        context.chat_data["song_flow_message_id"] = query.message.message_id
         await query.edit_message_text("📋 Please paste your lyrics:")
         return PASTE_LYRICS
 
@@ -194,6 +201,7 @@ async def choose_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📜 Select lyrics to convert to MP3:",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
+    context.chat_data["song_flow_message_id"] = query.message.message_id
     return CHOOSE_TYPE
 
 
@@ -224,6 +232,7 @@ async def pick_saved_lyrics(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📜 Topic: {song.topic}\n\n{lyrics_preview}\n\n🎧 Do you want to convert this to MP3?",
         reply_markup=_yes_no_keyboard()
     )
+    context.chat_data["song_flow_message_id"] = query.message.message_id
     return CONFIRM_MP3
 
 
@@ -233,7 +242,12 @@ async def pick_saved_lyrics(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def get_pasted_lyrics(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     context.user_data["lyrics"] = update.message.text
-    await update.message.reply_text("🎼 What music style do you want?\n\nExample:\n- Remix\n- Rap\n- Romantic\n- Sad Song")
+    await replace_flow_message(
+        context,
+        update.message.reply_text,
+        "🎼 What music style do you want?\n\nExample:\n- Remix\n- Rap\n- Romantic\n- Sad Song",
+        state_key="song_flow_message_id",
+    )
     return STYLE
 
 
@@ -243,7 +257,12 @@ async def get_pasted_lyrics(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def get_style(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     context.user_data["style"] = update.message.text
-    await update.message.reply_text("📝 What is the song topic?")
+    await replace_flow_message(
+        context,
+        update.message.reply_text,
+        "📝 What is the song topic?",
+        state_key="song_flow_message_id",
+    )
     return TOPIC
 
 
@@ -253,13 +272,16 @@ async def get_style(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def get_topic(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     context.user_data["topic"] = update.message.text
-    await update.message.reply_text(
+    await replace_flow_message(
+        context,
+        update.message.reply_text,
         "😊 What mood should the song have?\n\n"
         "Example:\n"
         "- Happy\n"
         "- Emotional\n"
         "- Sad\n"
-        "- Energetic"
+        "- Energetic",
+        state_key="song_flow_message_id",
     )
     return MOOD
 
@@ -270,9 +292,12 @@ async def get_topic(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def get_mood(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     context.user_data["mood"] = update.message.text
-    await update.message.reply_text(
+    await replace_flow_message(
+        context,
+        update.message.reply_text,
         "🌍 Choose a language:",
-        reply_markup=_language_keyboard()
+        reply_markup=_language_keyboard(),
+        state_key="song_flow_message_id",
     )
     return LANGUAGE
 
@@ -321,11 +346,15 @@ async def get_singer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(
             f"🌍 Language selected: {language}\n🎤 Singer: {singer_gender.title()}"
         )
+        context.chat_data["song_flow_message_id"] = query.message.message_id
         await context.bot.send_message(chat_id=query.message.chat_id, text=lyrics_msg)
-        await context.bot.send_message(
+        await replace_flow_message(
+            context,
+            context.bot.send_message,
             chat_id=query.message.chat_id,
             text="🎧 Do you want to convert this to MP3?",
-            reply_markup=_yes_no_keyboard()
+            reply_markup=_yes_no_keyboard(),
+            state_key="song_flow_message_id",
         )
         return CONFIRM_MP3
 
@@ -336,9 +365,12 @@ async def get_singer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text(
         f"🌍 Language selected: {language}\n🎤 Singer: {singer_gender.title()}"
     )
-    progress_message = await context.bot.send_message(
+    progress_message = await replace_flow_message(
+        context,
+        context.bot.send_message,
         chat_id=query.message.chat_id,
-        text="⏳ Generating lyrics... 0%"
+        text="⏳ Generating lyrics... 0%",
+        state_key="song_flow_message_id",
     )
     progress_task, progress_stop = await start_progress_message(
         progress_message,
@@ -364,10 +396,13 @@ async def get_singer(update: Update, context: ContextTypes.DEFAULT_TYPE):
             lyrics_msg = lyrics_msg[:4090] + "..."
         await context.bot.send_message(chat_id=query.message.chat_id, text=lyrics_msg)
 
-        await context.bot.send_message(
+        await replace_flow_message(
+            context,
+            context.bot.send_message,
             chat_id=query.message.chat_id,
             text="🎧 Do you want to convert this to MP3?",
-            reply_markup=_yes_no_keyboard()
+            reply_markup=_yes_no_keyboard(),
+            state_key="song_flow_message_id",
         )
         return CONFIRM_MP3
 
@@ -455,10 +490,13 @@ async def confirm_mp3(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 write_timeout=300,
             )
 
-        await context.bot.send_message(
+        await replace_flow_message(
+            context,
+            context.bot.send_message,
             chat_id=query.message.chat_id,
             text="🎨 Do you want to generate a cover image?",
-            reply_markup=_yes_no_keyboard()
+            reply_markup=_yes_no_keyboard(),
+            state_key="song_flow_message_id",
         )
         return CONFIRM_COVER
 
@@ -544,10 +582,13 @@ async def choose_cover_source(update: Update, context: ContextTypes.DEFAULT_TYPE
                 complete_text="✅ Cover uploaded",
             )
 
-        await context.bot.send_message(
+        await replace_flow_message(
+            context,
+            context.bot.send_message,
             chat_id=query.message.chat_id,
             text="🎬 Do you want to create a music video?",
-            reply_markup=_yes_no_keyboard()
+            reply_markup=_yes_no_keyboard(),
+            state_key="song_flow_message_id",
         )
         return CONFIRM_VIDEO
 
@@ -598,10 +639,13 @@ async def receive_uploaded_cover(update: Update, context: ContextTypes.DEFAULT_T
             caption="🖼 Uploaded Cover Image",
         )
 
-    await context.bot.send_message(
+    await replace_flow_message(
+        context,
+        context.bot.send_message,
         chat_id=update.effective_chat.id,
         text="🎬 Do you want to create a music video?",
-        reply_markup=_yes_no_keyboard()
+        reply_markup=_yes_no_keyboard(),
+        state_key="song_flow_message_id",
     )
     return CONFIRM_VIDEO
 
@@ -709,6 +753,7 @@ async def confirm_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
             chat_id=query.message.chat_id,
             text=f"✅ All done!\n\n💎 Remaining Credits: {user.credits}"
         )
+        clear_flow_message_tracking(context, state_key="song_flow_message_id")
 
     except Exception as e:
         await stop_progress_message(
@@ -730,6 +775,7 @@ async def confirm_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # -----------------------------
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
+    clear_flow_message_tracking(context, state_key="song_flow_message_id")
     await update.message.reply_text("❌ Song creation cancelled.")
     return ConversationHandler.END
 
