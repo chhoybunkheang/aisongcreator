@@ -11,17 +11,8 @@ from moviepy import AudioFileClip, CompositeAudioClip
 
 load_dotenv()
 
-_api_key = os.getenv("SUNO_API_KEY")
-_api_url = os.getenv("SUNO_API_URL")
-
-if not _api_key:
-    raise Exception("SUNO_API_KEY missing")
-
-if not _api_url:
-    raise Exception("SUNO_API_URL missing")
-
-API_KEY: str = _api_key
-API_URL: str = _api_url
+API_KEY: str = os.getenv("SUNO_API_KEY", "").strip()
+API_URL: str = os.getenv("SUNO_API_URL", "").strip()
 KHMER_MALE_VOICE = "km-KH-PisethNeural"
 KHMER_FEMALE_VOICE = "km-KH-SreymomNeural"
 TARGET_MP3_BITRATE = "128k"
@@ -193,6 +184,12 @@ def _download_audio_file(audio_url, file_stem, progress_callback=None):
 
 
 def _run_piapi_music_task(payload, progress_callback=None):
+    if not API_KEY:
+        raise Exception("SUNO_API_KEY missing. Set it in your environment before generating MP3.")
+
+    if not API_URL:
+        raise Exception("SUNO_API_URL missing. Set it in your environment before generating MP3.")
+
     headers = {
         "X-API-KEY": API_KEY,
         "Content-Type": "application/json"
