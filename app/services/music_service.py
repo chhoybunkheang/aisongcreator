@@ -1,4 +1,5 @@
 import asyncio
+import html
 import os
 import re
 import time
@@ -24,6 +25,9 @@ API_URL: str = _api_url
 KHMER_MALE_VOICE = "km-KH-PisethNeural"
 KHMER_FEMALE_VOICE = "km-KH-SreymomNeural"
 TARGET_MP3_BITRATE = "128k"
+PIAPI_CREATE_RETRIES = 3
+PIAPI_POLL_RETRIES = 3
+PIAPI_RETRY_DELAY_SECONDS = 3
 
 
 def _contains_khmer(text):
@@ -41,6 +45,33 @@ def _normalize_singer_gender(singer_gender):
     if normalized in {"male", "female"}:
         return normalized
     return "female"
+
+
+def _summarize_api_response(text):
+    raw_text = str(text or "").strip()
+    if not raw_text:
+        return "No response body."
+
+    condensed = re.sub(r"<[^>]+>", " ", raw_text)
+    condensed = html.unescape(condensed)
+    condensed = re.sub(r"\s+", " ", condensed).strip()
+
+    if not condensed:
+        return "Received an HTML error page from the music API."
+
+    if len(condensed) > 240:
+        condensed = condensed[:237] + "..."
+
+    return condensed
+
+
+def _is_retryable_status(status_code):
+    return status_code in {502, 503, 504}
+
+
+def _raise_api_error(prefix, response_text, status_code):
+    summary = _summarize_api_response(response_text)
+    raise Exception(f"{prefix} ({status_code}). {summary}")
 
 
 def _optimize_mp3_file(mp3_path):
@@ -139,11 +170,13 @@ def _extract_audio_url(output):
     return audio_url
 
 
-def _download_audio_file(audio_url, file_stem):
+def _download_audio_file(audio_url, file_stem, progress_callback=None):
     os.makedirs("media/generated/songs", exist_ok=True)
     mp3_path = f"media/generated/songs/{file_stem}.mp3"
 
     print("\n========== DOWNLOAD MP3 ==========")
+    if progress_callback:
+        progress_callback("⏳ Generating MP3...\nDownloading audio file...")
 
     try:
         audio_data = requests.get(audio_url, timeout=120)
@@ -159,7 +192,7 @@ def _download_audio_file(audio_url, file_stem):
     return mp3_path
 
 
-def _run_piapi_music_task(payload):
+def _run_piapi_music_task(payload, progress_callback=None):
     headers = {
         "X-API-KEY": API_KEY,
         "Content-Type": "application/json"
@@ -168,31 +201,51 @@ def _run_piapi_music_task(payload):
     print("\n========== CREATE TASK ==========")
     print("[DEBUG] API URL:", API_URL)
     print("[DEBUG] Payload:", payload)
+    if progress_callback:
+        progress_callback("⏳ Generating MP3...\nSubmitting request to music server...")
 
-    try:
-        response = requests.post(
-            API_URL,
-            json=payload,
-            headers=headers,
-            timeout=60
-        )
-    except Exception as e:
-        raise Exception(f"Failed to connect to music API: {e}")
+    response = None
+    for attempt in range(1, PIAPI_CREATE_RETRIES + 1):
+        try:
+            response = requests.post(
+                API_URL,
+                json=payload,
+                headers=headers,
+                timeout=60
+            )
+        except Exception as e:
+            if attempt == PIAPI_CREATE_RETRIES:
+                raise Exception(f"Failed to connect to music API: {e}")
+
+            print(f"[WARNING] Music API connection attempt {attempt} failed: {e}")
+            time.sleep(PIAPI_RETRY_DELAY_SECONDS)
+            continue
+
+        if _is_retryable_status(response.status_code) and attempt < PIAPI_CREATE_RETRIES:
+            if progress_callback:
+                progress_callback(
+                    f"⏳ Generating MP3...\nMusic server is busy. Retrying create request ({attempt}/{PIAPI_CREATE_RETRIES})..."
+                )
+            print(
+                f"[WARNING] Music API returned {response.status_code} on create attempt "
+                f"{attempt}. Retrying..."
+            )
+            time.sleep(PIAPI_RETRY_DELAY_SECONDS)
+            continue
+
+        break
+
+    if response is None:
+        raise Exception("Music API did not return a response.")
 
     print("[DEBUG] HTTP Status:", response.status_code)
     print("[DEBUG] Response Text:", response.text)
 
     if response.status_code >= 500:
-        raise Exception(
-            f"Music API server error ({response.status_code}). "
-            f"Response: {response.text}"
-        )
+        _raise_api_error("Music API server error", response.text, response.status_code)
 
     if response.status_code >= 400:
-        raise Exception(
-            f"Music API request error ({response.status_code}). "
-            f"Response: {response.text}"
-        )
+        _raise_api_error("Music API request error", response.text, response.status_code)
 
     try:
         data = response.json()
@@ -210,6 +263,8 @@ def _run_piapi_music_task(payload):
         raise Exception(f"No task_id returned: {data}")
 
     print(f"[INFO] Task created successfully: {task_id}")
+    if progress_callback:
+        progress_callback("⏳ Generating MP3...\nQueued on music server...")
 
     max_attempts = 60
     attempt = 0
@@ -217,17 +272,43 @@ def _run_piapi_music_task(payload):
     while attempt < max_attempts:
         print(f"\n========== POLL {attempt + 1} ==========")
 
-        try:
-            check_response = requests.get(
-                f"{API_URL}/{task_id}",
-                headers=headers,
-                timeout=60
-            )
-        except Exception as e:
-            raise Exception(f"Polling request failed: {e}")
+        check_response = None
+        for poll_attempt in range(1, PIAPI_POLL_RETRIES + 1):
+            try:
+                check_response = requests.get(
+                    f"{API_URL}/{task_id}",
+                    headers=headers,
+                    timeout=60
+                )
+            except Exception as e:
+                if poll_attempt == PIAPI_POLL_RETRIES:
+                    raise Exception(f"Polling request failed: {e}")
+
+                print(f"[WARNING] Poll request attempt {poll_attempt} failed: {e}")
+                time.sleep(PIAPI_RETRY_DELAY_SECONDS)
+                continue
+
+            if _is_retryable_status(check_response.status_code) and poll_attempt < PIAPI_POLL_RETRIES:
+                print(
+                    f"[WARNING] Music API returned {check_response.status_code} on poll attempt "
+                    f"{poll_attempt}. Retrying..."
+                )
+                time.sleep(PIAPI_RETRY_DELAY_SECONDS)
+                continue
+
+            break
+
+        if check_response is None:
+            raise Exception("Polling request did not return a response.")
 
         print("[DEBUG] Poll HTTP Status:", check_response.status_code)
         print("[DEBUG] Poll Response:", check_response.text)
+
+        if check_response.status_code >= 500:
+            _raise_api_error("Music API polling error", check_response.text, check_response.status_code)
+
+        if check_response.status_code >= 400:
+            _raise_api_error("Music API polling request error", check_response.text, check_response.status_code)
 
         try:
             result = check_response.json()
@@ -242,6 +323,12 @@ def _run_piapi_music_task(payload):
         status = result["data"].get("status")
         print(f"[POLL] Status = {status}")
 
+        if progress_callback:
+            status_text = str(status or "queued").replace("_", " ").title()
+            progress_callback(
+                f"⏳ Generating MP3...\nMusic server status: {status_text} (check {attempt + 1}/{max_attempts})"
+            )
+
         if status == "completed":
             output = result["data"].get("output")
             if not output:
@@ -250,7 +337,7 @@ def _run_piapi_music_task(payload):
             print("[DEBUG] Output:", output)
             audio_url = _extract_audio_url(output)
             print("[SUCCESS] Audio URL:", audio_url)
-            return _download_audio_file(audio_url, task_id)
+            return _download_audio_file(audio_url, task_id, progress_callback=progress_callback)
 
         if status == "failed":
             error_obj = result["data"].get("error")
@@ -272,7 +359,7 @@ def _run_piapi_music_task(payload):
     raise Exception("Music generation timed out")
 
 
-def _generate_khmer_instrumental(style, mood):
+def _generate_khmer_instrumental(style, mood, progress_callback=None):
     payload = {
         "model": "Qubico/ace-step",
         "task_type": "txt2audio",
@@ -293,7 +380,7 @@ def _generate_khmer_instrumental(style, mood):
         }
     }
 
-    return _run_piapi_music_task(payload)
+    return _run_piapi_music_task(payload, progress_callback=progress_callback)
 
 
 def _mix_voice_with_music(voice_path, music_path):
@@ -377,14 +464,16 @@ def _build_standard_music_payload(style, mood, lyrics, language="", singer_gende
     }
 
 
-def generate_music(style, topic, mood, lyrics, language="", singer_gender="female"):
+def generate_music(style, topic, mood, lyrics, language="", singer_gender="female", progress_callback=None):
     lang_lower = language.lower() if language else ""
 
     if "khmer" in lang_lower or "cambodian" in lang_lower or _contains_khmer(lyrics):
         print("[INFO] Khmer request detected, using Khmer voice + music fallback")
+        if progress_callback:
+            progress_callback("⏳ Generating MP3...\nPreparing Khmer vocals...")
         khmer_result = _generate_khmer_song(style, mood, lyrics, singer_gender=singer_gender)
         if khmer_result:
             return _optimize_mp3_file(khmer_result)
 
     payload = _build_standard_music_payload(style, mood, lyrics, language, singer_gender=singer_gender)
-    return _optimize_mp3_file(_run_piapi_music_task(payload))
+    return _optimize_mp3_file(_run_piapi_music_task(payload, progress_callback=progress_callback))

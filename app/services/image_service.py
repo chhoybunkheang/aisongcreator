@@ -50,7 +50,8 @@ def _save_optimized_cover(image_data):
 def generate_cover_image(
     topic,
     mood,
-    style
+    style,
+    progress_callback=None,
 ):
 
     prompt = f"""
@@ -80,8 +81,18 @@ def generate_cover_image(
     start_time = time.time()
 
     last_error = None
+    if progress_callback:
+        progress_callback("⏳ Generating cover image...\nPreparing image prompt...")
+
     for attempt in range(1, _MAX_RETRIES + 1):
         try:
+            if progress_callback:
+                if attempt == 1:
+                    progress_callback("⏳ Generating cover image...\nSending request to image engine...")
+                else:
+                    progress_callback(
+                        f"⏳ Generating cover image...\nRetrying image request ({attempt}/{_MAX_RETRIES})..."
+                    )
             print(f"[INFO] Starting OpenAI image generation (attempt {attempt}/{_MAX_RETRIES})...")
             response = client.images.generate(
                 model="gpt-image-1",
@@ -93,11 +104,15 @@ def generate_cover_image(
             # Only handle base64 image (b64_json)
             if hasattr(response, "data") and response.data and hasattr(response.data[0], "b64_json") and response.data[0].b64_json:
                 import base64
+                if progress_callback:
+                    progress_callback("⏳ Generating cover image...\nOptimizing generated image...")
                 print("[INFO] Decoding base64 image data...")
                 image_data = base64.b64decode(response.data[0].b64_json)
                 filepath = _save_optimized_cover(image_data)
                 print(f"[INFO] Writing image to {filepath}...")
                 print(f"[INFO] Total image generation time: {time.time() - start_time:.2f}s.")
+                if progress_callback:
+                    progress_callback("✅ Cover image generated 100%")
                 return filepath
 
             print("[ERROR] OpenAI image generation failed. Response:", response)
@@ -107,6 +122,10 @@ def generate_cover_image(
             last_error = e
             print(f"[WARN] Connection failed (attempt {attempt}/{_MAX_RETRIES}): {e}")
             if attempt < _MAX_RETRIES:
+                if progress_callback:
+                    progress_callback(
+                        f"⏳ Generating cover image...\nConnection issue. Retrying in {_RETRY_DELAY}s..."
+                    )
                 print(f"[INFO] Retrying in {_RETRY_DELAY}s...")
                 time.sleep(_RETRY_DELAY)
         except Exception as e:

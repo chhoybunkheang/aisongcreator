@@ -1,4 +1,6 @@
 import json
+import os
+import time
 from textwrap import wrap
 
 from moviepy import AudioFileClip, CompositeVideoClip, ImageClip, TextClip
@@ -12,6 +14,22 @@ SUBTITLE_WIDTH_RATIO = 0.82
 SUBTITLE_BOTTOM_MARGIN = 70
 SUBTITLE_WRAP = 42
 SUBTITLE_TEXT_COLOR = "white"
+VIDEO_RETRY_ATTEMPTS = 2
+VIDEO_RETRY_DELAY_SECONDS = 2
+
+
+def _is_retryable_video_error(error):
+    error_text = str(error or "").strip().lower()
+    retry_markers = (
+        "timeout",
+        "timed out",
+        "broken pipe",
+        "temporarily unavailable",
+        "resource busy",
+        "device busy",
+        "i/o error",
+    )
+    return any(marker in error_text for marker in retry_markers)
 
 
 def _build_subtitle_lines(lyrics):
@@ -129,42 +147,68 @@ def _build_timed_subtitle_clips(subtitle_segments, duration, frame_size):
     return subtitle_clips
 
 
-def create_music_video(audio_path, image_path, output_path, lyrics=None, subtitle_timing=None, subtitles_enabled=True):
-    audio = AudioFileClip(audio_path)
+def create_music_video(audio_path, image_path, output_path, lyrics=None, subtitle_timing=None, subtitles_enabled=True, progress_callback=None):
+    last_error = None
 
-    image = (
-        ImageClip(image_path)
-        .with_duration(audio.duration)
-        .resized(height=VIDEO_HEIGHT)
-    )
+    for attempt in range(1, VIDEO_RETRY_ATTEMPTS + 1):
+        if progress_callback:
+            if attempt == 1:
+                progress_callback("⏳ Creating music video...\nPreparing video layers...")
+            else:
+                progress_callback(f"⏳ Creating music video...\nRetrying render ({attempt}/{VIDEO_RETRY_ATTEMPTS})...")
 
-    subtitle_clips = []
-    video = image.with_audio(audio)
-
-    try:
-        if subtitles_enabled:
-            subtitle_segments = _load_subtitle_segments(subtitle_timing)
-            subtitle_clips = _build_timed_subtitle_clips(subtitle_segments, audio.duration, image.size)
-            if not subtitle_clips:
-                subtitle_lines = _build_subtitle_lines(lyrics)
-                subtitle_clips = _build_subtitle_clips(subtitle_lines, audio.duration, image.size)
-            if subtitle_clips:
-                video = CompositeVideoClip([video, *subtitle_clips]).with_audio(audio)
-
-        video.write_videofile(
-            output_path,
-            fps=VIDEO_FPS,
-            codec="libx264",
-            audio_codec="aac",
-            bitrate=VIDEO_BITRATE,
-            audio_bitrate=AUDIO_BITRATE,
-            preset=VIDEO_PRESET,
+        audio = AudioFileClip(audio_path)
+        image = (
+            ImageClip(image_path)
+            .with_duration(audio.duration)
+            .resized(height=VIDEO_HEIGHT)
         )
-    finally:
-        video.close()
-        image.close()
-        audio.close()
-        for subtitle_clip in subtitle_clips:
-            subtitle_clip.close()
 
-    return output_path
+        subtitle_clips = []
+        video = image.with_audio(audio)
+
+        try:
+            if subtitles_enabled:
+                subtitle_segments = _load_subtitle_segments(subtitle_timing)
+                subtitle_clips = _build_timed_subtitle_clips(subtitle_segments, audio.duration, image.size)
+                if not subtitle_clips:
+                    subtitle_lines = _build_subtitle_lines(lyrics)
+                    subtitle_clips = _build_subtitle_clips(subtitle_lines, audio.duration, image.size)
+                if subtitle_clips:
+                    video = CompositeVideoClip([video, *subtitle_clips]).with_audio(audio)
+
+            if progress_callback:
+                progress_callback("⏳ Creating music video...\nRendering video...")
+
+            video.write_videofile(
+                output_path,
+                fps=VIDEO_FPS,
+                codec="libx264",
+                audio_codec="aac",
+                bitrate=VIDEO_BITRATE,
+                audio_bitrate=AUDIO_BITRATE,
+                preset=VIDEO_PRESET,
+            )
+            if progress_callback:
+                progress_callback("✅ Video created 100%")
+            return output_path
+        except Exception as exc:
+            last_error = exc
+            if os.path.exists(output_path):
+                try:
+                    os.remove(output_path)
+                except OSError:
+                    pass
+
+            if attempt == VIDEO_RETRY_ATTEMPTS or not _is_retryable_video_error(exc):
+                raise
+
+            time.sleep(VIDEO_RETRY_DELAY_SECONDS)
+        finally:
+            video.close()
+            image.close()
+            audio.close()
+            for subtitle_clip in subtitle_clips:
+                subtitle_clip.close()
+
+    raise last_error or Exception("Video creation failed")

@@ -21,6 +21,7 @@ from app.database.queries import (
     get_user_songs,
     save_song,
     update_song_cover,
+    update_song_lyrics,
     update_song_mp3,
     update_song_subtitle_timing,
     update_song_video,
@@ -35,16 +36,21 @@ from app.states.song_states import (
     CONFIRM_COVER,
     CONFIRM_MP3,
     CONFIRM_VIDEO,
+    DESCRIPTION,
+    EDIT_LYRICS,
     LANGUAGE,
+    LYRICS_ACTION,
     MOOD,
+    MUSIC_STYLE,
     PASTE_LYRICS,
     SINGER,
-    STYLE,
+    SONG_TYPE,
     TOPIC,
     UPLOAD_COVER,
 )
 from app.utils.helpers import (
     clear_flow_message_tracking,
+    make_progress_notifier,
     replace_flow_message,
     send_audio_with_status,
     send_photo_with_status,
@@ -106,6 +112,276 @@ def _singer_keyboard():
             InlineKeyboardButton("🎙 Female", callback_data="singer_female"),
         ]
     ])
+
+
+def _description_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("⏭ Skip", callback_data="desc_skip")],
+    ])
+
+
+def _song_type_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("❤️ Love Song", callback_data="stype_love")],
+        [InlineKeyboardButton("🎂 Birthday Song", callback_data="stype_birthday")],
+        [InlineKeyboardButton("💍 Wedding Song", callback_data="stype_wedding")],
+        [InlineKeyboardButton("🥺 Sorry Song", callback_data="stype_sorry")],
+        [InlineKeyboardButton("👨‍👩‍👧 Parents Tribute", callback_data="stype_parents")],
+        [InlineKeyboardButton("🤝 Friendship Song", callback_data="stype_friendship")],
+        [InlineKeyboardButton("🎧 TikTok Remix", callback_data="stype_tiktok")],
+        [InlineKeyboardButton("💔 Sad Breakup", callback_data="stype_breakup")],
+        [InlineKeyboardButton("✍️ Custom", callback_data="stype_custom")],
+    ])
+
+
+def _music_style_keyboard():
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("🎵 Pop", callback_data="mstyle_Pop"),
+            InlineKeyboardButton("💕 Romantic", callback_data="mstyle_Romantic"),
+        ],
+        [
+            InlineKeyboardButton("💔 Sad Ballad", callback_data="mstyle_Sad Ballad"),
+            InlineKeyboardButton("🎸 Acoustic", callback_data="mstyle_Acoustic"),
+        ],
+        [
+            InlineKeyboardButton("🎤 Rap", callback_data="mstyle_Rap"),
+            InlineKeyboardButton("⚡ EDM", callback_data="mstyle_EDM"),
+        ],
+        [
+            InlineKeyboardButton("📱 TikTok Remix", callback_data="mstyle_TikTok Remix"),
+            InlineKeyboardButton("🎧 Lo-fi", callback_data="mstyle_Lo-fi"),
+        ],
+        [
+            InlineKeyboardButton("🤘 Rock", callback_data="mstyle_Rock"),
+            InlineKeyboardButton("🇰🇭 Khmer Remix", callback_data="mstyle_Khmer Remix"),
+        ],
+        [InlineKeyboardButton("✍️ Type My Own", callback_data="mstyle_custom")],
+    ])
+
+
+def _suggested_moods(song_type_code):
+    mood_map = {
+        "love": [
+            ("❤️ Romantic", "Romantic"),
+            ("🥺 Emotional", "Emotional"),
+            ("🌈 Hopeful", "Hopeful"),
+            ("🌙 Chill", "Chill"),
+        ],
+        "birthday": [
+            ("😊 Happy", "Happy"),
+            ("⚡ Energetic", "Energetic"),
+            ("🎉 Fun", "Fun"),
+            ("🌈 Joyful", "Joyful"),
+        ],
+        "wedding": [
+            ("❤️ Romantic", "Romantic"),
+            ("🥺 Emotional", "Emotional"),
+            ("🌈 Joyful", "Joyful"),
+            ("🙏 Loving", "Loving"),
+        ],
+        "sorry": [
+            ("🥺 Emotional", "Emotional"),
+            ("😢 Sad", "Sad"),
+            ("🌈 Hopeful", "Hopeful"),
+            ("🙏 Sincere", "Sincere"),
+        ],
+        "parents": [
+            ("🥺 Emotional", "Emotional"),
+            ("🙏 Grateful", "Grateful"),
+            ("❤️ Loving", "Loving"),
+            ("🌈 Hopeful", "Hopeful"),
+        ],
+        "friendship": [
+            ("😊 Happy", "Happy"),
+            ("🌙 Chill", "Chill"),
+            ("🎉 Fun", "Fun"),
+            ("🌈 Hopeful", "Hopeful"),
+        ],
+        "tiktok": [
+            ("⚡ Energetic", "Energetic"),
+            ("🎉 Party", "Party"),
+            ("😎 Cool", "Cool"),
+            ("🔥 Hype", "Hype"),
+        ],
+        "breakup": [
+            ("💔 Heartbroken", "Heartbroken"),
+            ("😢 Sad", "Sad"),
+            ("🥺 Emotional", "Emotional"),
+            ("🌙 Lonely", "Lonely"),
+        ],
+        "custom": [
+            ("😊 Happy", "Happy"),
+            ("❤️ Romantic", "Romantic"),
+            ("😢 Sad", "Sad"),
+            ("🥺 Emotional", "Emotional"),
+            ("⚡ Energetic", "Energetic"),
+            ("🌙 Chill", "Chill"),
+            ("💔 Heartbroken", "Heartbroken"),
+            ("🌈 Hopeful", "Hopeful"),
+        ],
+    }
+    return mood_map.get(song_type_code or "custom", mood_map["custom"])
+
+
+def _mood_keyboard(song_type_code):
+    suggested_moods = _suggested_moods(song_type_code)
+    rows = []
+
+    for index in range(0, len(suggested_moods), 2):
+        pair = suggested_moods[index:index + 2]
+        rows.append([
+            InlineKeyboardButton(label, callback_data=f"mood_{value}")
+            for label, value in pair
+        ])
+
+    rows.append([InlineKeyboardButton("✍️ Type My Own", callback_data="mood_custom")])
+    return InlineKeyboardMarkup(rows)
+
+
+def _mood_examples_text(song_type_code):
+    examples = [value for _, value in _suggested_moods(song_type_code)[:4]]
+    return "\n".join(f"- {example}" for example in examples)
+
+
+def _song_type_label(song_type_code):
+    labels = {
+        "love": "Love Song",
+        "birthday": "Birthday Song",
+        "wedding": "Wedding Song",
+        "sorry": "Sorry Song",
+        "parents": "Parents Tribute",
+        "friendship": "Friendship Song",
+        "tiktok": "TikTok Remix",
+        "breakup": "Sad Breakup",
+        "custom": "Custom",
+    }
+    return labels.get(song_type_code, "Custom")
+
+
+def _lyrics_action_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("✍️ Edit Lyrics", callback_data="lyrics_edit")],
+        [InlineKeyboardButton("🎼 Continue", callback_data="lyrics_continue")],
+        [InlineKeyboardButton("🔄 Regenerate", callback_data="lyrics_regenerate")],
+    ])
+
+
+def _lyrics_preview_message(lyrics, generated=False):
+    prefix = "🎵 Your AI Lyrics" if generated else "📝 Your Lyrics"
+    lyrics_msg = f"{prefix}\n\n{lyrics}"
+    if len(lyrics_msg) > 4096:
+        lyrics_msg = lyrics_msg[:4090] + "..."
+    return lyrics_msg
+
+
+async def _show_lyrics_actions(context, chat_id):
+    await replace_flow_message(
+        context,
+        context.bot.send_message,
+        chat_id=chat_id,
+        text="What do you want to do with these lyrics?",
+        reply_markup=_lyrics_action_keyboard(),
+        state_key="song_flow_message_id",
+    )
+    return LYRICS_ACTION
+
+
+async def _send_lyrics_preview_and_actions(context, telegram_id, chat_id, lyrics, generated=False):
+    context.user_data["lyrics"] = lyrics
+
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=_lyrics_preview_message(lyrics, generated=generated),
+    )
+    return await _show_lyrics_actions(context, chat_id)
+
+
+def _persist_current_lyrics(context, telegram_id):
+    song_id = _save_lyrics_draft(context, telegram_id)
+    if song_id is not None:
+        update_song_lyrics(song_id, context.user_data["lyrics"])
+
+    return song_id
+
+
+async def _regenerate_lyrics_for_current_context(query, context):
+    style = context.user_data["style"]
+    topic = context.user_data["topic"]
+    mood = context.user_data["mood"]
+    language = context.user_data["language"]
+    description = context.user_data.get("description", "")
+
+    await query.edit_message_text(
+        f"🌍 Language selected: {language}\n🎤 Singer: {context.user_data.get('singer_gender', 'female').title()}"
+    )
+    progress_message = await replace_flow_message(
+        context,
+        context.bot.send_message,
+        chat_id=query.message.chat_id,
+        text="⏳ Generating lyrics...\nPreparing request...",
+        state_key="song_flow_message_id",
+    )
+    progress_task, progress_stop = await start_progress_message(
+        progress_message,
+        "⏳ Generating lyrics...",
+        auto_increment=False,
+    )
+    progress_callback = make_progress_notifier(asyncio.get_running_loop(), progress_message)
+
+    try:
+        lyrics = await asyncio.to_thread(
+            generate_lyrics,
+            style=style,
+            topic=topic,
+            mood=mood,
+            language=language,
+            description=description,
+            progress_callback=progress_callback,
+        )
+        await stop_progress_message(
+            progress_task,
+            progress_stop,
+            progress_message,
+            "✅ Lyrics generated 100%"
+        )
+        return await _send_lyrics_preview_and_actions(
+            context,
+            query.from_user.id,
+            query.message.chat_id,
+            lyrics,
+            generated=True,
+        )
+    except Exception as e:
+        await stop_progress_message(
+            progress_task,
+            progress_stop,
+            progress_message,
+            "❌ Lyrics generation failed"
+        )
+        error_msg = f"❌ Error generating lyrics:\n{str(e)}"
+        if len(error_msg) > 4096:
+            error_msg = error_msg[:4090] + "..."
+        await context.bot.send_message(chat_id=query.message.chat_id, text=error_msg)
+        return ConversationHandler.END
+
+def _friendly_mp3_error_message(error):
+    error_text = str(error or "").strip()
+    lowered = error_text.lower()
+
+    if any(token in lowered for token in ("502", "503", "504", "bad gateway", "music api server error", "polling error")):
+        return (
+            "❌ Could not generate the MP3 right now.\n\n"
+            "The music server is temporarily busy or unavailable. Please try again in a few minutes."
+        )
+
+    if "timed out" in lowered or "timeout" in lowered:
+        return (
+            "❌ MP3 generation timed out.\n\n"
+            "The music server took too long to respond. Please try again shortly."
+        )
+
+    return f"❌ Error generating MP3:\n{error_text}"
 
 
 async def _safe_answer(query):
@@ -176,12 +452,18 @@ async def choose_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if query.data == "type_new":
         context.user_data.clear()
+        context.user_data["description"] = ""
+        context.user_data["song_type"] = "custom"
         context.chat_data["song_flow_message_id"] = query.message.message_id
-        await query.edit_message_text("🎼 What music style do you want?\n\nExample:\n- Remix\n- Rap\n- Romantic\n- Sad Song")
-        return STYLE
+        await query.edit_message_text(
+            "🎵 Choose Song Type",
+            reply_markup=_song_type_keyboard(),
+        )
+        return SONG_TYPE
 
     if query.data == "type_paste":
         context.user_data.clear()
+        context.user_data["description"] = ""
         context.chat_data["song_flow_message_id"] = query.message.message_id
         await query.edit_message_text("📋 Please paste your lyrics:")
         return PASTE_LYRICS
@@ -226,14 +508,17 @@ async def pick_saved_lyrics(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["mood"] = song.mood
     context.user_data["language"] = song.language
     context.user_data["lyrics"] = song.lyrics
+    context.user_data["description"] = ""
 
-    lyrics_preview = str(song.lyrics)[:300] + "..." if song.lyrics and len(str(song.lyrics)) > 300 else song.lyrics
-    await query.edit_message_text(
-        f"📜 Topic: {song.topic}\n\n{lyrics_preview}\n\n🎧 Do you want to convert this to MP3?",
-        reply_markup=_yes_no_keyboard()
-    )
+    await query.edit_message_text(f"📜 Topic: {song.topic}")
     context.chat_data["song_flow_message_id"] = query.message.message_id
-    return CONFIRM_MP3
+    return await _send_lyrics_preview_and_actions(
+        context,
+        query.from_user.id,
+        query.message.chat_id,
+        song.lyrics,
+        generated=False,
+    )
 
 
 # -----------------------------
@@ -242,19 +527,52 @@ async def pick_saved_lyrics(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def get_pasted_lyrics(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     context.user_data["lyrics"] = update.message.text
+    context.user_data["description"] = ""
     await replace_flow_message(
         context,
         update.message.reply_text,
-        "🎼 What music style do you want?\n\nExample:\n- Remix\n- Rap\n- Romantic\n- Sad Song",
+        "🎼 Choose a music style or type your own.\n\n"
+        "Examples:\n- Remix\n- Rap\n- Romantic\n- Sad Song",
+        reply_markup=_music_style_keyboard(),
         state_key="song_flow_message_id",
     )
-    return STYLE
+    return MUSIC_STYLE
 
 
 # -----------------------------
-# GET STYLE
+# CHOOSE SONG TYPE
 # -----------------------------
-async def get_style(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def choose_song_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    query = update.callback_query
+    await _safe_answer(query)
+
+    song_type = (query.data or "").replace("stype_", "", 1)
+    context.user_data["song_type"] = song_type or "custom"
+
+    if context.user_data["song_type"] == "custom":
+        await query.edit_message_text(
+            "✍️ Custom Song\n\n"
+            "Choose a music style or type your own.\n\n"
+            "Examples:\n- Remix\n- Rap\n- Romantic\n- Sad Song",
+            reply_markup=_music_style_keyboard(),
+        )
+        return MUSIC_STYLE
+
+    song_type_label = _song_type_label(context.user_data["song_type"])
+    await query.edit_message_text(
+        f"🎵 Song Type: {song_type_label}\n\n"
+        "🎼 Choose a music style or type your own.\n\n"
+        "Examples:\n- Remix\n- Rap\n- Romantic\n- Sad Song",
+        reply_markup=_music_style_keyboard(),
+    )
+    return MUSIC_STYLE
+
+
+# -----------------------------
+# GET MUSIC STYLE
+# -----------------------------
+async def get_music_style(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     context.user_data["style"] = update.message.text
     await replace_flow_message(
@@ -266,21 +584,38 @@ async def get_style(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return TOPIC
 
 
+async def choose_music_style(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    query = update.callback_query
+    await _safe_answer(query)
+
+    callback_value = (query.data or "").replace("mstyle_", "", 1)
+    if callback_value == "custom":
+        await query.edit_message_text(
+            "✍️ Type your music style.\n\n"
+            "Examples:\n- Remix\n- Rap\n- Romantic\n- Sad Song"
+        )
+        return MUSIC_STYLE
+
+    context.user_data["style"] = callback_value
+    await query.edit_message_text("📝 What is the song topic?")
+    return TOPIC
+
+
 # -----------------------------
 # GET TOPIC
 # -----------------------------
 async def get_topic(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     context.user_data["topic"] = update.message.text
+    song_type_code = context.user_data.get("song_type", "custom")
+    song_type_label = _song_type_label(song_type_code)
     await replace_flow_message(
         context,
         update.message.reply_text,
-        "😊 What mood should the song have?\n\n"
-        "Example:\n"
-        "- Happy\n"
-        "- Emotional\n"
-        "- Sad\n"
-        "- Energetic",
+        f"😊 Choose a mood for the {song_type_label.lower()} or type your own.\n\n"
+        f"Examples:\n{_mood_examples_text(song_type_code)}",
+        reply_markup=_mood_keyboard(song_type_code),
         state_key="song_flow_message_id",
     )
     return MOOD
@@ -295,9 +630,74 @@ async def get_mood(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await replace_flow_message(
         context,
         update.message.reply_text,
+        "✍️ Tell me more about the feeling or story you want in the lyrics.\n\n"
+        "Example:\n"
+        "- a breakup at midnight\n"
+        "- soft romantic words\n"
+        "- from a girl to a boy\n"
+        "- mention rain, memories, and pain\n\n"
+        "You can type extra details or tap Skip.",
+        reply_markup=_description_keyboard(),
+        state_key="song_flow_message_id",
+    )
+    return DESCRIPTION
+
+
+async def choose_mood(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    query = update.callback_query
+    await _safe_answer(query)
+
+    callback_value = (query.data or "").replace("mood_", "", 1)
+    if callback_value == "custom":
+        await query.edit_message_text(
+            "✍️ Type your mood.\n\n"
+            "Examples:\n- Happy\n- Emotional\n- Sad\n- Energetic"
+        )
+        return MOOD
+
+    context.user_data["mood"] = callback_value
+    await query.edit_message_text(
+        "✍️ Tell me more about the feeling or story you want in the lyrics.\n\n"
+        "Example:\n"
+        "- a breakup at midnight\n"
+        "- soft romantic words\n"
+        "- from a girl to a boy\n"
+        "- mention rain, memories, and pain\n\n"
+        "You can type extra details or tap Skip.",
+        reply_markup=_description_keyboard(),
+    )
+    return DESCRIPTION
+
+
+# -----------------------------
+# GET DESCRIPTION
+# -----------------------------
+async def get_description(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    description_text = (update.message.text or "").strip()
+    context.user_data["description"] = "" if description_text.lower() == "skip" else description_text
+    await replace_flow_message(
+        context,
+        update.message.reply_text,
         "🌍 Choose a language:",
         reply_markup=_language_keyboard(),
         state_key="song_flow_message_id",
+    )
+    return LANGUAGE
+
+
+async def skip_description(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await _safe_answer(query)
+
+    if query is None:
+        return DESCRIPTION
+
+    context.user_data["description"] = ""
+    await query.edit_message_text(
+        "🌍 Choose a language:",
+        reply_markup=_language_keyboard(),
     )
     return LANGUAGE
 
@@ -339,85 +739,53 @@ async def get_singer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data.get("lyrics"):
         # Paste Lyrics path — lyrics already collected before style/topic/mood/language
         lyrics = context.user_data["lyrics"]
-        _save_lyrics_draft(context, query.from_user.id)
-        lyrics_msg = f"📝 Your Lyrics\n\n{lyrics}"
-        if len(lyrics_msg) > 4096:
-            lyrics_msg = lyrics_msg[:4090] + "..."
         await query.edit_message_text(
             f"🌍 Language selected: {language}\n🎤 Singer: {singer_gender.title()}"
         )
         context.chat_data["song_flow_message_id"] = query.message.message_id
-        await context.bot.send_message(chat_id=query.message.chat_id, text=lyrics_msg)
-        await replace_flow_message(
+        return await _send_lyrics_preview_and_actions(
             context,
-            context.bot.send_message,
-            chat_id=query.message.chat_id,
-            text="🎧 Do you want to convert this to MP3?",
+            query.from_user.id,
+            query.message.chat_id,
+            lyrics,
+            generated=False,
+        )
+
+    return await _regenerate_lyrics_for_current_context(query, context)
+
+
+async def lyrics_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await _safe_answer(query)
+
+    if query.data == "lyrics_continue":
+        _persist_current_lyrics(context, query.from_user.id)
+        await query.edit_message_text(
+            "🎧 Do you want to convert this to MP3?",
             reply_markup=_yes_no_keyboard(),
-            state_key="song_flow_message_id",
         )
         return CONFIRM_MP3
 
-    style = context.user_data["style"]
-    topic = context.user_data["topic"]
-    mood = context.user_data["mood"]
+    if query.data == "lyrics_edit":
+        await query.edit_message_text(
+            "✍️ Send your updated lyrics text."
+        )
+        return EDIT_LYRICS
 
-    await query.edit_message_text(
-        f"🌍 Language selected: {language}\n🎤 Singer: {singer_gender.title()}"
-    )
-    progress_message = await replace_flow_message(
+    return await _regenerate_lyrics_for_current_context(query, context)
+
+
+async def edit_lyrics(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    lyrics = (update.message.text or "").strip()
+    context.user_data["lyrics"] = lyrics
+
+    return await _send_lyrics_preview_and_actions(
         context,
-        context.bot.send_message,
-        chat_id=query.message.chat_id,
-        text="⏳ Generating lyrics... 0%",
-        state_key="song_flow_message_id",
+        update.effective_user.id,
+        update.effective_chat.id,
+        lyrics,
+        generated=False,
     )
-    progress_task, progress_stop = await start_progress_message(
-        progress_message,
-        "⏳ Generating lyrics..."
-    )
-
-    try:
-        lyrics = await asyncio.to_thread(
-            generate_lyrics,
-            style=style, topic=topic, mood=mood, language=language
-        )
-        await stop_progress_message(
-            progress_task,
-            progress_stop,
-            progress_message,
-            "✅ Lyrics generated 100%"
-        )
-        context.user_data["lyrics"] = lyrics
-        _save_lyrics_draft(context, query.from_user.id)
-
-        lyrics_msg = f"🎵 Your AI Lyrics\n\n{lyrics}"
-        if len(lyrics_msg) > 4096:
-            lyrics_msg = lyrics_msg[:4090] + "..."
-        await context.bot.send_message(chat_id=query.message.chat_id, text=lyrics_msg)
-
-        await replace_flow_message(
-            context,
-            context.bot.send_message,
-            chat_id=query.message.chat_id,
-            text="🎧 Do you want to convert this to MP3?",
-            reply_markup=_yes_no_keyboard(),
-            state_key="song_flow_message_id",
-        )
-        return CONFIRM_MP3
-
-    except Exception as e:
-        await stop_progress_message(
-            progress_task,
-            progress_stop,
-            progress_message,
-            "❌ Lyrics generation failed"
-        )
-        error_msg = f"❌ Error generating lyrics:\n{str(e)}"
-        if len(error_msg) > 4096:
-            error_msg = error_msg[:4090] + "..."
-        await context.bot.send_message(chat_id=query.message.chat_id, text=error_msg)
-        return ConversationHandler.END
 
 
 # -----------------------------
@@ -437,18 +805,21 @@ async def confirm_mp3(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mood = context.user_data["mood"]
     lyrics = context.user_data["lyrics"]
 
-    await query.edit_message_text("⏳ Generating MP3... 0%")
+    await query.edit_message_text("⏳ Generating MP3...\nPreparing request...")
     progress_task, progress_stop = await start_progress_message(
         query.message,
-        "⏳ Generating MP3..."
+        "⏳ Generating MP3...",
+        auto_increment=False,
     )
+    progress_callback = make_progress_notifier(asyncio.get_running_loop(), query.message)
 
     try:
         mp3_file = await asyncio.to_thread(
             generate_music,
             style=style, topic=topic, mood=mood, lyrics=lyrics,
             language=context.user_data.get("language", ""),
-            singer_gender=context.user_data.get("singer_gender", "female")
+            singer_gender=context.user_data.get("singer_gender", "female"),
+            progress_callback=progress_callback,
         )
         await stop_progress_message(
             progress_task,
@@ -507,7 +878,7 @@ async def confirm_mp3(update: Update, context: ContextTypes.DEFAULT_TYPE):
             query.message,
             "❌ MP3 generation failed"
         )
-        error_msg = f"❌ Error generating MP3:\n{str(e)}"
+        error_msg = _friendly_mp3_error_message(e)
         if len(error_msg) > 4096:
             error_msg = error_msg[:4090] + "..."
         await context.bot.send_message(chat_id=query.message.chat_id, text=error_msg)
@@ -555,16 +926,19 @@ async def choose_cover_source(update: Update, context: ContextTypes.DEFAULT_TYPE
     mood = context.user_data["mood"]
     style = context.user_data["style"]
 
-    await query.edit_message_text("⏳ Generating cover image... 0%")
+    await query.edit_message_text("⏳ Generating cover image...\nPreparing request...")
     progress_task, progress_stop = await start_progress_message(
         query.message,
-        "⏳ Generating cover image..."
+        "⏳ Generating cover image...",
+        auto_increment=False,
     )
+    progress_callback = make_progress_notifier(asyncio.get_running_loop(), query.message)
 
     try:
         cover_image = await asyncio.to_thread(
             generate_cover_image,
-            topic=topic, mood=mood, style=style
+            topic=topic, mood=mood, style=style,
+            progress_callback=progress_callback,
         )
         await stop_progress_message(progress_task, progress_stop)
         context.user_data["cover_image"] = cover_image
@@ -691,13 +1065,26 @@ async def confirm_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
     topic = context.user_data["topic"]
     subtitle_timing = None
 
+    await query.edit_message_text(
+        "⏳ Generating subtitles...\nPreparing request..."
+        if subtitles_enabled and context.user_data.get("lyrics")
+        else "⏳ Creating music video...\nPreparing render..."
+    )
+    progress_task, progress_stop = await start_progress_message(
+        query.message,
+        "⏳ Generating subtitles..." if subtitles_enabled and context.user_data.get("lyrics") else "⏳ Creating music video...",
+        auto_increment=False,
+    )
+    progress_callback = make_progress_notifier(asyncio.get_running_loop(), query.message)
+
     if subtitles_enabled and context.user_data.get("lyrics"):
         try:
             subtitle_timing = await asyncio.to_thread(
                 generate_subtitle_timing,
                 mp3_file,
                 context.user_data["lyrics"],
-                context.user_data.get("language", "")
+                context.user_data.get("language", ""),
+                progress_callback=progress_callback,
             )
         except Exception:
             subtitle_timing = []
@@ -707,12 +1094,6 @@ async def confirm_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 context.user_data["song_id"],
                 json.dumps(subtitle_timing, ensure_ascii=False)
             )
-
-    await query.edit_message_text("⏳ Creating music video... 0%")
-    progress_task, progress_stop = await start_progress_message(
-        query.message,
-        "⏳ Creating music video..."
-    )
 
     try:
         safe_topic = "_".join(topic.split())
@@ -726,7 +1107,8 @@ async def confirm_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
             output_path=video_path,
             lyrics=context.user_data.get("lyrics"),
             subtitle_timing=subtitle_timing,
-            subtitles_enabled=subtitles_enabled
+            subtitles_enabled=subtitles_enabled,
+            progress_callback=progress_callback,
         )
         await stop_progress_message(progress_task, progress_stop)
         if context.user_data.get("song_id"):
@@ -795,23 +1177,38 @@ song_handler = ConversationHandler(
             CallbackQueryHandler(choose_type, pattern=r"^type_"),
             CallbackQueryHandler(pick_saved_lyrics, pattern=r"^lyr_pick_\d+$"),
         ],
+        SONG_TYPE: [
+            CallbackQueryHandler(choose_song_type, pattern=r"^stype_")
+        ],
         PASTE_LYRICS: [
             MessageHandler(filters.TEXT & ~filters.COMMAND, get_pasted_lyrics)
         ],
-        STYLE: [
-            MessageHandler(filters.TEXT & ~filters.COMMAND, get_style)
+        MUSIC_STYLE: [
+            CallbackQueryHandler(choose_music_style, pattern=r"^mstyle_"),
+            MessageHandler(filters.TEXT & ~filters.COMMAND, get_music_style)
         ],
         TOPIC: [
             MessageHandler(filters.TEXT & ~filters.COMMAND, get_topic)
         ],
         MOOD: [
+            CallbackQueryHandler(choose_mood, pattern=r"^mood_"),
             MessageHandler(filters.TEXT & ~filters.COMMAND, get_mood)
+        ],
+        DESCRIPTION: [
+            MessageHandler(filters.TEXT & ~filters.COMMAND, get_description),
+            CallbackQueryHandler(skip_description, pattern=r"^desc_skip$")
         ],
         LANGUAGE: [
             CallbackQueryHandler(get_language, pattern=r"^lang_")
         ],
         SINGER: [
             CallbackQueryHandler(get_singer, pattern=r"^singer_")
+        ],
+        LYRICS_ACTION: [
+            CallbackQueryHandler(lyrics_action, pattern=r"^lyrics_")
+        ],
+        EDIT_LYRICS: [
+            MessageHandler(filters.TEXT & ~filters.COMMAND, edit_lyrics)
         ],
         CONFIRM_MP3: [
             CallbackQueryHandler(confirm_mp3)

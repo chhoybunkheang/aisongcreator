@@ -13,6 +13,11 @@ FLOW_MESSAGE_STATE_KEYS = (
 	"buycredits_flow_message_id",
 )
 
+SLOW_PROGRESS_SECONDS = 45
+SLOW_PROGRESS_SUFFIX = "\n\n⌛ This is taking longer than usual. The bot is still working."
+_progress_trackers = {}
+_progress_trackers_by_stop_event = {}
+
 
 def _tracked_message_parts(tracked_value, fallback_chat_id=None):
 	if isinstance(tracked_value, dict):
@@ -93,6 +98,50 @@ async def _safe_edit_progress(message, text):
 			pass
 
 
+def _tracker_key(message):
+	return id(message)
+
+
+def _render_progress_text(tracker, text):
+	base_text = text or ""
+	if tracker and tracker.get("slow_active"):
+		if base_text.endswith(SLOW_PROGRESS_SUFFIX):
+			return base_text
+		return f"{base_text}{SLOW_PROGRESS_SUFFIX}"
+	return base_text
+
+
+async def _safe_edit_tracked_progress(message, text):
+	tracker = _progress_trackers.get(_tracker_key(message))
+	if tracker is not None:
+		tracker["last_text"] = text
+	await _safe_edit_progress(message, _render_progress_text(tracker, text))
+
+
+async def _slow_progress_worker(message, stop_event, delay):
+	await asyncio.sleep(delay)
+	if stop_event.is_set():
+		return
+
+	tracker = _progress_trackers.get(_tracker_key(message))
+	if not tracker:
+		return
+
+	tracker["slow_active"] = True
+	await _safe_edit_progress(message, _render_progress_text(tracker, tracker.get("last_text") or ""))
+
+
+async def update_progress_message(message, text):
+	await _safe_edit_tracked_progress(message, text)
+
+
+def make_progress_notifier(loop, message):
+	def notify(text):
+		loop.call_soon_threadsafe(asyncio.create_task, _safe_edit_tracked_progress(message, text))
+
+	return notify
+
+
 async def _progress_worker(
 	message,
 	label,
@@ -103,7 +152,7 @@ async def _progress_worker(
 	delay=2,
 ):
 	percent = start_percent
-	await _safe_edit_progress(message, f"{label} {percent}%")
+	await _safe_edit_tracked_progress(message, f"{label} {percent}%")
 
 	while not stop_event.is_set():
 		await asyncio.sleep(delay)
@@ -112,20 +161,45 @@ async def _progress_worker(
 
 		if percent < max_percent:
 			percent = min(percent + step, max_percent)
-			await _safe_edit_progress(message, f"{label} {percent}%")
+			await _safe_edit_tracked_progress(message, f"{label} {percent}%")
 
 
-async def start_progress_message(message, label):
+async def start_progress_message(message, label, auto_increment=True):
 	stop_event = asyncio.Event()
+	tracker = {
+		"last_text": label,
+		"slow_active": False,
+		"slow_task": asyncio.create_task(_slow_progress_worker(message, stop_event, SLOW_PROGRESS_SECONDS)),
+	}
+	_progress_trackers[_tracker_key(message)] = tracker
+	_progress_trackers_by_stop_event[id(stop_event)] = (_tracker_key(message), tracker)
+	if not auto_increment:
+		await _safe_edit_tracked_progress(message, label)
+		return None, stop_event
+
 	task = asyncio.create_task(_progress_worker(message, label, stop_event))
 	return task, stop_event
 
 
 async def stop_progress_message(task, stop_event, message=None, final_text=None):
 	stop_event.set()
-	task.cancel()
-	with suppress(asyncio.CancelledError):
-		await task
+	tracker = None
+	tracker_entry = _progress_trackers_by_stop_event.pop(id(stop_event), None)
+	if tracker_entry is not None:
+		message_key, tracker = tracker_entry
+		_progress_trackers.pop(message_key, None)
+	elif message is not None:
+		tracker = _progress_trackers.pop(_tracker_key(message), None)
+	if tracker is not None:
+		slow_task = tracker.get("slow_task")
+		if slow_task is not None:
+			slow_task.cancel()
+			with suppress(asyncio.CancelledError):
+				await slow_task
+	if task is not None:
+		task.cancel()
+		with suppress(asyncio.CancelledError):
+			await task
 
 	if message is not None and final_text:
 		await _safe_edit_progress(message, final_text)

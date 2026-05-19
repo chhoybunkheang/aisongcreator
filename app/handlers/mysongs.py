@@ -38,6 +38,7 @@ from app.services.openai_service import (
 from app.services.video_service import create_music_video
 from app.utils.helpers import (
     clear_flow_message_tracking,
+    make_progress_notifier,
     replace_flow_message,
     retry_telegram_call,
     send_audio_with_status,
@@ -96,6 +97,25 @@ def _mp4_list_label(song):
     return " ".join(parts)
 
 
+def _friendly_mp3_error_message(error):
+    error_text = str(error or "").strip()
+    lowered = error_text.lower()
+
+    if any(token in lowered for token in ("502", "503", "504", "bad gateway", "music api server error", "polling error")):
+        return (
+            "❌ Could not generate the MP3 right now.\n\n"
+            "The music server is temporarily busy or unavailable. Please try again in a few minutes."
+        )
+
+    if "timed out" in lowered or "timeout" in lowered:
+        return (
+            "❌ MP3 generation timed out.\n\n"
+            "The music server took too long to respond. Please try again shortly."
+        )
+
+    return f"Error generating MP3:\n{error_text}"
+
+
 def _cover_source_keyboard(song_id):
     return InlineKeyboardMarkup([
         [
@@ -131,6 +151,24 @@ def _mp3_action_markup(song):
 # HELPER: build keyboard for next step
 # -----------------------------------
 def _next_step_markup(song):
+
+    def _friendly_mp3_error_message(error):
+        error_text = str(error or "").strip()
+        lowered = error_text.lower()
+
+        if any(token in lowered for token in ("502", "503", "504", "bad gateway", "music api server error", "polling error")):
+            return (
+                "❌ Could not generate the MP3 right now.\n\n"
+                "The music server is temporarily busy or unavailable. Please try again in a few minutes."
+            )
+
+        if "timed out" in lowered or "timeout" in lowered:
+            return (
+                "❌ MP3 generation timed out.\n\n"
+                "The music server took too long to respond. Please try again shortly."
+            )
+
+        return f"Error generating MP3:\n{error_text}"
     sid = song.id
     if not song.mp3_path or not os.path.exists(song.mp3_path):
         return InlineKeyboardMarkup([[
@@ -204,7 +242,7 @@ async def song_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     message = (
         f"Topic: {song.topic}\n"
-        f"Style: {song.style}\n"
+        f"Music Style: {song.style}\n"
         f"Mood: {song.mood}\n"
         f"Language: {song.language}\n\n"
         f"{song.lyrics}"
@@ -263,11 +301,13 @@ async def ms_gen_mp3(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    await query.edit_message_text("Generating MP3... 0%")
+    await query.edit_message_text("Generating MP3...\nPreparing request...")
     progress_task, progress_stop = await start_progress_message(
         query.message,
-        "Generating MP3..."
+        "Generating MP3...",
+        auto_increment=False,
     )
+    progress_callback = make_progress_notifier(asyncio.get_running_loop(), query.message)
 
     try:
         mp3_file = await asyncio.to_thread(
@@ -276,7 +316,8 @@ async def ms_gen_mp3(update: Update, context: ContextTypes.DEFAULT_TYPE):
             topic=song.topic,
             mood=song.mood,
             lyrics=song.lyrics,
-            language=song.language or ""
+            language=song.language or "",
+            progress_callback=progress_callback,
         )
         await stop_progress_message(progress_task, progress_stop)
         deduct_credit(query.from_user.id)
@@ -330,7 +371,7 @@ async def ms_gen_mp3(update: Update, context: ContextTypes.DEFAULT_TYPE):
             query.message,
             "MP3 generation failed"
         )
-        error_msg = f"Error generating MP3:\n{str(e)}"
+        error_msg = _friendly_mp3_error_message(e)
         if len(error_msg) > 4096:
             error_msg = error_msg[:4090] + "..."
         await context.bot.send_message(chat_id=query.message.chat_id, text=error_msg)
@@ -350,18 +391,21 @@ async def ms_gen_cover(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(chat_id=query.message.chat_id, text="Song not found.")
         return
 
-    await query.edit_message_text("Generating cover image... 0%")
+    await query.edit_message_text("Generating cover image...\nPreparing request...")
     progress_task, progress_stop = await start_progress_message(
         query.message,
-        "Generating cover image..."
+        "Generating cover image...",
+        auto_increment=False,
     )
+    progress_callback = make_progress_notifier(asyncio.get_running_loop(), query.message)
 
     try:
         cover_image = await asyncio.to_thread(
             generate_cover_image,
             topic=song.topic,
             mood=song.mood,
-            style=song.style
+            style=song.style,
+            progress_callback=progress_callback,
         )
         await stop_progress_message(progress_task, progress_stop)
         update_song_cover(song_id, cover_image)
@@ -465,17 +509,23 @@ async def ms_gen_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    await query.edit_message_text("Creating music video... 0%")
+    subtitles_enabled = choice == "yes"
+    await query.edit_message_text(
+        "Generating subtitles...\nPreparing request..."
+        if subtitles_enabled and song.lyrics and song.mp3_path
+        else "Creating music video...\nPreparing render..."
+    )
     progress_task, progress_stop = await start_progress_message(
         query.message,
-        "Creating music video..."
+        "Generating subtitles..." if subtitles_enabled and song.lyrics and song.mp3_path else "Creating music video...",
+        auto_increment=False,
     )
+    progress_callback = make_progress_notifier(asyncio.get_running_loop(), query.message)
 
     try:
         safe_topic = "_".join(song.topic.split())
         video_path = f"media/generated/videos/{song_id}_{safe_topic}.mp4"
         os.makedirs("media/generated/videos", exist_ok=True)
-        subtitles_enabled = choice == "yes"
         subtitle_timing = None
         if subtitles_enabled and song.lyrics and song.mp3_path:
             try:
@@ -483,7 +533,8 @@ async def ms_gen_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     generate_subtitle_timing,
                     song.mp3_path,
                     song.lyrics,
-                    song.language or ""
+                    song.language or "",
+                    progress_callback=progress_callback,
                 )
             except Exception:
                 generated_timing = []
@@ -498,7 +549,8 @@ async def ms_gen_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
             output_path=video_path,
             lyrics=song.lyrics,
             subtitle_timing=subtitle_timing,
-            subtitles_enabled=subtitles_enabled
+            subtitles_enabled=subtitles_enabled,
+            progress_callback=progress_callback,
         )
         await stop_progress_message(progress_task, progress_stop)
         update_song_video(song_id, video_path)
@@ -595,7 +647,7 @@ async def lyrics_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     text = (
         f"Topic: {song.topic}\n"
-        f"Style: {song.style}\n"
+        f"Music Style: {song.style}\n"
         f"Mood: {song.mood}\n"
         f"Language: {song.language}\n\n"
         f"{song.lyrics}"
@@ -807,23 +859,26 @@ async def mp3_to_lyrics(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(chat_id=query.message.chat_id, text="MP3 file not found.")
         return
 
-    await query.edit_message_text("Recovering lyrics from MP3... 0%")
+    await query.edit_message_text("⏳ Recovering lyrics from MP3...\nPreparing request...")
     progress_task, progress_stop = await start_progress_message(
         query.message,
-        "Recovering lyrics from MP3..."
+        "⏳ Recovering lyrics from MP3...",
+        auto_increment=False,
     )
+    progress_callback = make_progress_notifier(asyncio.get_running_loop(), query.message)
 
     try:
         lyrics = await asyncio.to_thread(
             transcribe_lyrics_from_mp3,
             song.mp3_path,
-            song.language or ""
+            song.language or "",
+            progress_callback=progress_callback,
         )
         await stop_progress_message(
             progress_task,
             progress_stop,
             query.message,
-            "Lyrics recovered 100%"
+            "✅ Lyrics recovered 100%"
         )
 
         update_song_lyrics(song_id, lyrics)
@@ -974,12 +1029,17 @@ async def add_subtitle_to_video(update: Update, context: ContextTypes.DEFAULT_TY
 
     progress_message = await context.bot.send_message(
         chat_id=query.message.chat_id,
-        text=("Updating subtitles... 0%" if song.subtitle_timing else "Adding subtitles... 0%")
+        text=(
+            "Updating subtitles...\nPreparing request..."
+            if song.subtitle_timing else "Adding subtitles...\nPreparing request..."
+        )
     )
     progress_task, progress_stop = await start_progress_message(
         progress_message,
-        "Updating subtitles..." if song.subtitle_timing else "Adding subtitles..."
+        "Updating subtitles..." if song.subtitle_timing else "Adding subtitles...",
+        auto_increment=False,
     )
+    progress_callback = make_progress_notifier(asyncio.get_running_loop(), progress_message)
 
     try:
         subtitle_timing = None
@@ -989,7 +1049,8 @@ async def add_subtitle_to_video(update: Update, context: ContextTypes.DEFAULT_TY
                     generate_subtitle_timing,
                     song.mp3_path,
                     song.lyrics,
-                    song.language or ""
+                    song.language or "",
+                    progress_callback=progress_callback,
                 )
             except Exception:
                 generated_timing = []
@@ -1008,7 +1069,8 @@ async def add_subtitle_to_video(update: Update, context: ContextTypes.DEFAULT_TY
             image_path=song.cover_path,
             output_path=video_path,
             lyrics=song.lyrics,
-            subtitle_timing=subtitle_timing
+            subtitle_timing=subtitle_timing,
+            progress_callback=progress_callback,
         )
         update_song_video(song_id, video_path)
         await stop_progress_message(progress_task, progress_stop)

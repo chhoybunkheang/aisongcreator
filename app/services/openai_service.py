@@ -1,6 +1,7 @@
 import base64
 import json
 import re
+import time
 from difflib import SequenceMatcher
 
 from openai import OpenAI
@@ -11,6 +12,27 @@ from app.config.settings import OPENAI_API_KEY
 # OPENAI CLIENT
 # -----------------------------------
 client = OpenAI(api_key=OPENAI_API_KEY)
+LYRICS_RETRY_ATTEMPTS = 2
+LYRICS_RETRY_DELAY_SECONDS = 2
+
+
+def _is_retryable_openai_error(error):
+    error_text = str(error or "").strip().lower()
+    retry_markers = (
+        "timeout",
+        "timed out",
+        "rate limit",
+        "429",
+        "500",
+        "502",
+        "503",
+        "504",
+        "server error",
+        "service unavailable",
+        "connection",
+        "overloaded",
+    )
+    return any(marker in error_text for marker in retry_markers)
 
 
 def _extract_json_object(content):
@@ -416,10 +438,13 @@ def _find_best_line_window(line_tokens, words, start_index):
     return None
 
 
-def generate_subtitle_timing(mp3_path, lyrics, language=""):
+def generate_subtitle_timing(mp3_path, lyrics, language="", progress_callback=None):
     lyric_lines = _clean_lyric_lines(lyrics)
     if not lyric_lines:
         return []
+
+    if progress_callback:
+        progress_callback("⏳ Generating subtitles...\nPreparing lyric lines...")
 
     transcription_language = _normalize_transcription_language(language)
     transcription_prompt = (
@@ -428,6 +453,8 @@ def generate_subtitle_timing(mp3_path, lyrics, language=""):
     )
 
     with open(mp3_path, "rb") as audio_file:
+        if progress_callback:
+            progress_callback("⏳ Generating subtitles...\nTranscribing audio with timestamps...")
         transcription_kwargs = {
             "model": "whisper-1",
             "file": audio_file,
@@ -447,13 +474,21 @@ def generate_subtitle_timing(mp3_path, lyrics, language=""):
     else:
         response_data = json.loads(response)
 
+    if progress_callback:
+        progress_callback("⏳ Generating subtitles...\nAligning lyrics to transcription...")
+
     words = _extract_transcription_words(response_data)
     aligned_lines = _align_lyric_lines_to_words(lyric_lines, words)
     if aligned_lines:
+        if progress_callback:
+            progress_callback("✅ Subtitles generated 100%")
         return aligned_lines
 
     segments = response_data.get("segments") or []
-    return _align_lyric_lines_to_segments(lyric_lines, segments)
+    aligned_segments = _align_lyric_lines_to_segments(lyric_lines, segments)
+    if progress_callback:
+        progress_callback("✅ Subtitles generated 100%")
+    return aligned_segments
 
 
 def _is_khmer_language(language):
@@ -525,7 +560,10 @@ def _format_transcribed_lyrics(text, language=""):
     return formatted_text or text
 
 
-def transcribe_lyrics_from_mp3(mp3_path, language=""):
+def transcribe_lyrics_from_mp3(mp3_path, language="", progress_callback=None):
+
+    if progress_callback:
+        progress_callback("⏳ Recovering lyrics from MP3...\nPreparing audio transcription...")
 
     transcription_language = _normalize_transcription_language(language)
     transcription_prompt = (
@@ -540,6 +578,8 @@ def transcribe_lyrics_from_mp3(mp3_path, language=""):
         )
 
     with open(mp3_path, "rb") as audio_file:
+        if progress_callback:
+            progress_callback("⏳ Recovering lyrics from MP3...\nTranscribing vocals from audio...")
         transcription_kwargs = {
             "model": "whisper-1",
             "file": audio_file,
@@ -560,6 +600,8 @@ def transcribe_lyrics_from_mp3(mp3_path, language=""):
         raise Exception("No lyrics were detected in the MP3.")
 
     if _is_khmer_language(language) and _contains_thai_script(text) and not _contains_khmer_script(text):
+        if progress_callback:
+            progress_callback("⏳ Recovering lyrics from MP3...\nRepairing Khmer script output...")
         repair_response = client.chat.completions.create(
             model="gpt-4.1-mini",
             messages=[
@@ -588,7 +630,12 @@ def transcribe_lyrics_from_mp3(mp3_path, language=""):
         if repaired_text:
             text = repaired_text
 
+    if progress_callback:
+        progress_callback("⏳ Recovering lyrics from MP3...\nFormatting recovered lyrics...")
     text = _format_transcribed_lyrics(text, language)
+
+    if progress_callback:
+        progress_callback("✅ Lyrics recovered 100%")
 
     return text
 
@@ -638,7 +685,13 @@ def generate_title(topic, mood):
 # -----------------------------------
 # GENERATE SONG LYRICS
 # -----------------------------------
-def generate_lyrics(style, topic, mood, language):
+def generate_lyrics(style, topic, mood, language, description="", progress_callback=None):
+
+    extra_description = str(description or "").strip()
+    extra_description_block = (
+        f"- Extra Description: {extra_description}\n"
+        if extra_description else ""
+    )
 
     prompt = f"""
     You are a professional songwriter.
@@ -650,6 +703,7 @@ def generate_lyrics(style, topic, mood, language):
     - Topic: {topic}
     - Mood: {mood}
     - Language: {language}
+    {extra_description_block}
 
     Requirements:
     - Write ALL lyrics strictly in {language} language only
@@ -689,35 +743,59 @@ def generate_lyrics(style, topic, mood, language):
 
     If mood is romantic:
     - make lyrics sweet and emotional
+
+    If Extra Description is provided:
+    - use it to shape the story, wording, feeling, and details of the lyrics
+    - keep the lyrics aligned with the user's requested situation and emotion
     """
 
-    response = client.chat.completions.create(
-        model="gpt-4.1-mini",
+    last_error = None
 
-        messages=[
-            {
-                "role": "system",
-                "content": """
-                You are an award-winning songwriter
-                and music producer.
+    if progress_callback:
+        progress_callback("⏳ Generating lyrics...\nPreparing prompt...")
 
-                You specialize in:
-                - emotional lyrics
-                - catchy choruses
-                - modern song structures
-                - viral music styles
-                - Khmer remix music
-                - TikTok-style songs
-                """
-            },
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ],
+    for attempt in range(1, LYRICS_RETRY_ATTEMPTS + 1):
+        try:
+            if progress_callback:
+                if attempt == 1:
+                    progress_callback("⏳ Generating lyrics...\nSending request to lyrics engine...")
+                else:
+                    progress_callback(f"⏳ Generating lyrics...\nRetrying request ({attempt}/{LYRICS_RETRY_ATTEMPTS})...")
 
-        temperature=0.9,
-        max_tokens=800
-    )
+            response = client.chat.completions.create(
+                model="gpt-4.1-mini",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": """
+                        You are an award-winning songwriter
+                        and music producer.
 
-    return response.choices[0].message.content
+                        You specialize in:
+                        - emotional lyrics
+                        - catchy choruses
+                        - modern song structures
+                        - viral music styles
+                        - Khmer remix music
+                        - TikTok-style songs
+                        """
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ],
+                temperature=0.9,
+                max_tokens=800
+            )
+            if progress_callback:
+                progress_callback("✅ Lyrics generated 100%")
+            return response.choices[0].message.content
+        except Exception as exc:
+            last_error = exc
+            if attempt == LYRICS_RETRY_ATTEMPTS or not _is_retryable_openai_error(exc):
+                raise
+
+            time.sleep(LYRICS_RETRY_DELAY_SECONDS)
+
+    raise last_error or Exception("Lyrics generation failed")
