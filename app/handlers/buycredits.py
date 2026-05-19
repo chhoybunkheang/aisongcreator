@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from telegram import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
@@ -10,7 +12,72 @@ from telegram.ext import (
     filters,
 )
 
-from app.config.settings import ADMIN_ID
+from app.config.settings import (
+    ADMIN_ID,
+    PAYMENT_ACCOUNT_NAME,
+    PAYMENT_ACCOUNT_NUMBER,
+    PAYMENT_QR_IMAGE,
+)
+from app.database.queries import (
+    get_payment_qr_file_id,
+    update_payment_qr_file_id,
+)
+
+
+def _package_details(package_code):
+
+    package_map = {
+        "buy_10": (10, "$1"),
+        "buy_50": (50, "$3"),
+        "buy_100": (100, "$5"),
+    }
+
+    return package_map.get(package_code, (100, "$5"))
+
+
+async def _send_payment_qr(message, credits, price):
+
+    caption = (
+        f"💳 Scan To Pay\n\n"
+        f"Package: {credits} Credits\n"
+        f"Price: {price}\n\n"
+        f"After payment, please take a screenshot and send it here. "
+        f"The admin will review and approve your credits."
+    )
+
+    package_qr_file_id = get_payment_qr_file_id(credits)
+    if package_qr_file_id:
+        await message.reply_photo(
+            photo=package_qr_file_id,
+            caption=caption,
+        )
+        return True
+
+    qr_image = PAYMENT_QR_IMAGE.strip()
+    if not qr_image:
+        return False
+
+    if qr_image.startswith(("http://", "https://")):
+        await message.reply_photo(
+            photo=qr_image,
+            caption=caption,
+        )
+        return True
+
+    qr_path = Path(qr_image)
+    if not qr_path.is_absolute():
+        qr_path = Path.cwd() / qr_path
+
+    if not qr_path.exists():
+        return False
+
+    with qr_path.open("rb") as qr_file:
+        await message.reply_photo(
+            photo=qr_file,
+            caption=caption,
+        )
+
+    return True
 
 
 # -----------------------------------
@@ -61,30 +128,36 @@ async def payment_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
 
     package = query.data
-
-    if package == "buy_10":
-        credits = 10
-        price = "$1"
-
-    elif package == "buy_50":
-        credits = 50
-        price = "$3"
-
-    else:
-        credits = 100
-        price = "$5"
+    credits, price = _package_details(package)
 
     context.user_data["buy_credits"] = credits
 
-    await query.message.reply_text(
+    qr_sent = await _send_payment_qr(query.message, credits, price)
+
+    if qr_sent:
+        return
+
+    payment_text = (
         f"💳 Payment Instructions\n\n"
         f"Package: {credits} Credits\n"
         f"Price: {price}\n\n"
-        f"Send payment to:\n"
-        f"ABA: 012345678\n"
-        f"Name: YOUR NAME\n\n"
-        f"Then upload payment screenshot here."
+        f"Account: {PAYMENT_ACCOUNT_NUMBER}\n"
+        f"Name: {PAYMENT_ACCOUNT_NAME}\n\n"
     )
+
+    if qr_sent:
+        payment_text += (
+            "Scan the QR code above, complete the payment, and upload your payment "
+            "screenshot here so the admin can approve your credits."
+        )
+    else:
+        payment_text += (
+            "Scan the payment QR code and upload your payment screenshot here so the "
+            "admin can approve your credits.\n\n"
+            "Note: no QR image is configured yet. Set PAYMENT_QR_IMAGE in .env to show it here."
+        )
+
+    await query.message.reply_text(payment_text)
 # -----------------------------------
 # RECEIVE PAYMENT SCREENSHOT
 # -----------------------------------
@@ -97,6 +170,21 @@ async def receive_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "❌ Please upload a payment screenshot."
         )
 
+        return
+
+    pending_qr_package = context.user_data.get("payment_qr_package")
+    if update.effective_user.id == ADMIN_ID and pending_qr_package:
+        qr_photo = update.message.photo[-1]
+        update_payment_qr_file_id(pending_qr_package, qr_photo.file_id)
+        context.user_data.pop("payment_qr_package", None)
+
+        await update.message.reply_text(
+            f"✅ QR image saved for {pending_qr_package} credits.\n\n"
+            "Users who choose this package will now see this QR image.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("💳 Back To Payment Setup", callback_data="settings_payment")],
+            ])
+        )
         return
 
     telegram_id = update.effective_user.id
@@ -113,16 +201,26 @@ async def receive_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"💳 New Payment Request\n\n"
         f"👤 User: {username}\n"
         f"🆔 Telegram ID: {telegram_id}\n"
-        f"💎 Requested Credits: {credits}\n\n"
-        f"Approve using:\n"
-        f"/approve {telegram_id} {credits}"
+        f"💎 Requested Credits: {credits}"
     )
 
     # Send to admin
     await context.bot.send_photo(
         chat_id=ADMIN_ID,
         photo=file_id,
-        caption=caption
+        caption=caption,
+        reply_markup=InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton(
+                    "✅ Approve",
+                    callback_data=f"approve_{telegram_id}_{credits}"
+                ),
+                InlineKeyboardButton(
+                    "❌ Reject",
+                    callback_data=f"reject_{telegram_id}"
+                )
+            ]
+        ])
     )
 
     await update.message.reply_text(

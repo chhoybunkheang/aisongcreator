@@ -9,6 +9,7 @@ from app.database.models import (
 )
 
 LANGUAGE_SETTING_KEY = "enabled_song_languages"
+PAYMENT_QR_SETTING_KEY = "payment_qr_file_ids"
 DEFAULT_SONG_LANGUAGES = [
     "English",
     "Khmer",
@@ -322,6 +323,123 @@ def update_enabled_song_languages(languages):
 
     db.commit()
     db.close()
+
+
+def get_payment_qr_file_ids():
+
+    db = SessionLocal()
+
+    setting = (
+        db.query(AppSetting)
+        .filter(AppSetting.key == PAYMENT_QR_SETTING_KEY)
+        .first()
+    )
+
+    db.close()
+
+    if not setting or not setting.value:
+        return {}
+
+    try:
+        file_ids = json.loads(setting.value)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return {}
+
+    if not isinstance(file_ids, dict):
+        return {}
+
+    normalized = {}
+    for package, file_id in file_ids.items():
+        package_key = str(package).strip()
+        file_id_value = str(file_id).strip()
+        if package_key and file_id_value:
+            normalized[package_key] = file_id_value
+
+    return normalized
+
+
+def get_payment_qr_file_id(package_credits):
+
+    file_ids = get_payment_qr_file_ids()
+    return file_ids.get(str(package_credits), "")
+
+
+def update_payment_qr_file_id(package_credits, file_id):
+
+    db = SessionLocal()
+
+    setting = (
+        db.query(AppSetting)
+        .filter(AppSetting.key == PAYMENT_QR_SETTING_KEY)
+        .first()
+    )
+
+    if setting and setting.value:
+        try:
+            file_ids = json.loads(setting.value)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            file_ids = {}
+    else:
+        file_ids = {}
+
+    if not isinstance(file_ids, dict):
+        file_ids = {}
+
+    file_ids[str(package_credits)] = str(file_id)
+    serialized_file_ids = json.dumps(file_ids, ensure_ascii=False)
+
+    if setting:
+        setting.value = serialized_file_ids
+    else:
+        setting = AppSetting(
+            key=PAYMENT_QR_SETTING_KEY,
+            value=serialized_file_ids,
+        )
+        db.add(setting)
+
+    db.commit()
+    db.close()
+
+
+def delete_payment_qr_file_id(package_credits):
+
+    db = SessionLocal()
+
+    setting = (
+        db.query(AppSetting)
+        .filter(AppSetting.key == PAYMENT_QR_SETTING_KEY)
+        .first()
+    )
+
+    if not setting or not setting.value:
+        db.close()
+        return False
+
+    try:
+        file_ids = json.loads(setting.value)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        db.close()
+        return False
+
+    if not isinstance(file_ids, dict):
+        db.close()
+        return False
+
+    package_key = str(package_credits)
+    if package_key not in file_ids:
+        db.close()
+        return False
+
+    file_ids.pop(package_key, None)
+
+    if file_ids:
+        setting.value = json.dumps(file_ids, ensure_ascii=False)
+    else:
+        db.delete(setting)
+
+    db.commit()
+    db.close()
+    return True
 
 
 # -----------------------------------

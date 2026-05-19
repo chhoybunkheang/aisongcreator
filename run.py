@@ -71,16 +71,20 @@ def main():
 
     from telegram import BotCommand
     from telegram import error as tg_error
-    from telegram.ext import ApplicationBuilder
+    from telegram.ext import ApplicationBuilder, MessageHandler, filters
 
     from app.config.settings import BOT_TOKEN
     from app.database.db import engine, migrate_db
     from app.database.models import Base
-    from app.handlers.admin import approve_handler
+    from app.handlers.admin import (
+        approve_callback_handler,
+        approve_handler,
+        reject_callback_handler,
+    )
     from app.handlers.buycredits import (
         buycredits_handler,
         payment_handler,
-        receipt_handler,
+        receive_payment,
     )
     from app.handlers.help import settings_action_handler, settings_handler
     from app.handlers.mysongs import (
@@ -92,8 +96,8 @@ def main():
         ms_cov_handler,
         ms_cov_upload_handler,
         ms_mp3_handler,
+        ms_receive_uploaded_cover,
         ms_skip_handler,
-        ms_uploaded_cover_handler,
         ms_vid_choice_handler,
         ms_vid_handler,
         mylyrics_handler,
@@ -106,6 +110,17 @@ def main():
     )
     from app.handlers.song import song_handler
     from app.handlers.start import start_handler
+
+    async def photo_router(update, context):
+        user_data = context.user_data or {}
+
+        if user_data.get("payment_qr_package") or user_data.get("buy_credits"):
+            await receive_payment(update, context)
+            return
+
+        if user_data.get("ms_cover_song_id"):
+            await ms_receive_uploaded_cover(update, context)
+            return
 
     async def error_handler(update, context):
         error = context.error
@@ -159,7 +174,6 @@ def main():
     app.add_handler(ms_vid_handler)
     app.add_handler(ms_vid_choice_handler)
     app.add_handler(ms_skip_handler)
-    app.add_handler(ms_uploaded_cover_handler)
     app.add_handler(mp3_actions_handler)
     app.add_handler(mp3_to_lyrics_handler)
     app.add_handler(mp3_video_prompt_handler)
@@ -168,7 +182,9 @@ def main():
     app.add_handler(add_subtitle_handler)
     app.add_handler(buycredits_handler)
     app.add_handler(payment_handler)
-    app.add_handler(receipt_handler)
+    app.add_handler(MessageHandler(filters.PHOTO, photo_router))
+    app.add_handler(approve_callback_handler)
+    app.add_handler(reject_callback_handler)
     app.add_handler(approve_handler)
     app.add_error_handler(error_handler)
 

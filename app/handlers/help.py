@@ -4,6 +4,7 @@ from telegram.ext import CallbackQueryHandler, ContextTypes, MessageHandler, fil
 from app.config.settings import ADMIN_ID
 from app.database.queries import (
     DEFAULT_SONG_LANGUAGES,
+    delete_payment_qr_file_id,
     delete_song_lyrics,
     delete_song_mp3,
     delete_song_mp4,
@@ -11,6 +12,7 @@ from app.database.queries import (
     delete_user_mp3,
     delete_user_mp4,
     get_enabled_song_languages,
+    get_payment_qr_file_ids,
     get_user,
     get_user_songs,
     reset_user_song_data,
@@ -40,6 +42,7 @@ def _settings_menu_keyboard_for_user(is_admin):
 
     if is_admin:
         rows.append([InlineKeyboardButton("🌍 Languages", callback_data="settings_languages")])
+        rows.append([InlineKeyboardButton("💳 Payment", callback_data="settings_payment")])
 
     return InlineKeyboardMarkup(rows)
 
@@ -116,6 +119,35 @@ def _settings_language_keyboard(enabled_languages):
     return InlineKeyboardMarkup(rows)
 
 
+def _settings_payment_keyboard(qr_file_ids):
+    rows = []
+
+    for package_credits, price in ((10, "$1"), (50, "$3"), (100, "$5")):
+        configured = "✅" if qr_file_ids.get(str(package_credits)) else "⬜"
+        rows.append([
+            InlineKeyboardButton(
+                f"{configured} {package_credits} Credits - {price}",
+                callback_data=f"settings_payment_pkg_{package_credits}"
+            )
+        ])
+
+    rows.append([InlineKeyboardButton("⬅️ Back", callback_data="settings_back")])
+    return InlineKeyboardMarkup(rows)
+
+
+def _settings_payment_package_keyboard(package_credits, has_qr):
+    rows = [
+        [InlineKeyboardButton("🖼 Upload / Replace QR", callback_data=f"settings_payment_upload_{package_credits}")],
+    ]
+
+    if has_qr:
+        rows.insert(0, [InlineKeyboardButton("👁 View Current QR", callback_data=f"settings_payment_view_{package_credits}")])
+        rows.append([InlineKeyboardButton("🗑 Remove QR", callback_data=f"settings_payment_remove_{package_credits}")])
+
+    rows.append([InlineKeyboardButton("⬅️ Back To Payment", callback_data="settings_payment")])
+    return InlineKeyboardMarkup(rows)
+
+
 def _deletable_items(telegram_id, item_type):
     songs = get_user_songs(telegram_id)
 
@@ -145,6 +177,7 @@ async def settings_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     is_admin = telegram_id == ADMIN_ID
 
     if query.data == "settings_back":
+        context.user_data.pop("payment_qr_package", None)
         await query.edit_message_text(
             "⚙️ Settings\n\nChoose an option:",
             reply_markup=_settings_menu_keyboard_for_user(is_admin)
@@ -184,6 +217,90 @@ async def settings_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(
             "🌍 Visible Song Languages\n\nChoose which languages users can see in Create Song:",
             reply_markup=_settings_language_keyboard(enabled_languages)
+        )
+        return
+
+    if query.data == "settings_payment":
+        if not is_admin:
+            await query.answer("Admin only.", show_alert=True)
+            return
+
+        context.user_data.pop("payment_qr_package", None)
+        qr_file_ids = get_payment_qr_file_ids()
+        await query.edit_message_text(
+            "💳 Payment QR Setup\n\nChoose a package to upload or replace its QR image:",
+            reply_markup=_settings_payment_keyboard(qr_file_ids)
+        )
+        return
+
+    if query.data.startswith("settings_payment_pkg_"):
+        if not is_admin:
+            await query.answer("Admin only.", show_alert=True)
+            return
+
+        package_credits = int(query.data.rsplit("_", 1)[1])
+        context.user_data["payment_qr_package"] = package_credits
+        qr_file_ids = get_payment_qr_file_ids()
+        has_qr = bool(qr_file_ids.get(str(package_credits)))
+        await query.edit_message_text(
+            f"💳 QR Setup For {package_credits} Credits\n\n"
+            "You can send a QR image now, or use the buttons below.",
+            reply_markup=_settings_payment_package_keyboard(package_credits, has_qr)
+        )
+        return
+
+    if query.data.startswith("settings_payment_upload_"):
+        if not is_admin:
+            await query.answer("Admin only.", show_alert=True)
+            return
+
+        package_credits = int(query.data.rsplit("_", 1)[1])
+        context.user_data["payment_qr_package"] = package_credits
+        await query.edit_message_text(
+            f"💳 Upload QR For {package_credits} Credits\n\n"
+            "Send one QR image now. The uploaded image will be shown to users who choose this package.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("⬅️ Back To Package", callback_data=f"settings_payment_pkg_{package_credits}")],
+            ])
+        )
+        return
+
+    if query.data.startswith("settings_payment_view_"):
+        if not is_admin:
+            await query.answer("Admin only.", show_alert=True)
+            return
+
+        package_credits = int(query.data.rsplit("_", 1)[1])
+        qr_file_id = get_payment_qr_file_ids().get(str(package_credits), "")
+        if not qr_file_id:
+            await query.answer("No QR image saved for this package.", show_alert=True)
+            return
+
+        await context.bot.send_photo(
+            chat_id=query.message.chat_id,
+            photo=qr_file_id,
+            caption=f"Current QR for {package_credits} credits.",
+        )
+        await query.edit_message_text(
+            f"💳 QR Setup For {package_credits} Credits\n\n"
+            "Current QR shown above.",
+            reply_markup=_settings_payment_package_keyboard(package_credits, True)
+        )
+        return
+
+    if query.data.startswith("settings_payment_remove_"):
+        if not is_admin:
+            await query.answer("Admin only.", show_alert=True)
+            return
+
+        package_credits = int(query.data.rsplit("_", 1)[1])
+        deleted = delete_payment_qr_file_id(package_credits)
+        await query.edit_message_text(
+            (
+                f"✅ Removed QR for {package_credits} credits."
+                if deleted else f"No QR was saved for {package_credits} credits."
+            ),
+            reply_markup=_settings_payment_package_keyboard(package_credits, False)
         )
         return
 
