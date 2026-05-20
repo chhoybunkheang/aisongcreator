@@ -56,6 +56,7 @@ from app.utils.helpers import (
     send_photo_with_status,
     send_video_with_status,
     start_progress_message,
+    start_timed_progress_message,
     stop_progress_message,
 )
 
@@ -710,10 +711,11 @@ async def get_language(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _safe_answer(query)
 
     selected_language = query.data.replace("lang_", "", 1)
+    enabled_languages = get_enabled_song_languages()
 
-    if selected_language == "Khmer":
+    if selected_language not in enabled_languages:
         await query.edit_message_text(
-            "🇰🇭 Khmer language is now in construction. Please choose another language.",
+            "❌ This language is not available right now. Please choose another language.",
             reply_markup=_language_keyboard()
         )
         return LANGUAGE
@@ -1070,10 +1072,14 @@ async def confirm_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if subtitles_enabled and context.user_data.get("lyrics")
         else "⏳ Creating music video...\nPreparing render..."
     )
-    progress_task, progress_stop = await start_progress_message(
+    progress_task, progress_stop = await start_timed_progress_message(
         query.message,
-        "⏳ Generating subtitles..." if subtitles_enabled and context.user_data.get("lyrics") else "⏳ Creating music video...",
-        auto_increment=False,
+        "⏳ Generating subtitles...\nPreparing request..."
+        if subtitles_enabled and context.user_data.get("lyrics")
+        else "⏳ Creating music video...\nPreparing render...",
+        start_percent=1,
+        max_percent=100,
+        total_seconds=150,
     )
     progress_callback = make_progress_notifier(asyncio.get_running_loop(), query.message)
 

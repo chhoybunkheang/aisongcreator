@@ -47,7 +47,7 @@ async def clear_tracked_flow_messages(context, keep_state_key=None, chat_id=None
 		return
 
 	for state_key in FLOW_MESSAGE_STATE_KEYS:
-		if state_key == keep_state_key:
+		if state_key == keep_state_key or state_key == "start_flow_message_id":
 			continue
 
 		tracked_value = chat_data.pop(state_key, None)
@@ -105,6 +105,10 @@ def _tracker_key(message):
 
 def _render_progress_text(tracker, text):
 	base_text = text or ""
+	if tracker and tracker.get("show_percent"):
+		current_percent = int(tracker.get("current_percent") or 0)
+		percent_line = f"📊 Queue Status: {current_percent}%"
+		base_text = f"{base_text}\n{percent_line}" if base_text else percent_line
 	if tracker and tracker.get("slow_active"):
 		if base_text.endswith(SLOW_PROGRESS_SUFFIX):
 			return base_text
@@ -165,11 +169,48 @@ async def _progress_worker(
 			await _safe_edit_tracked_progress(message, f"{label} {percent}%")
 
 
+async def _timed_progress_worker(
+	message,
+	stop_event,
+	start_percent,
+	max_percent,
+	total_seconds,
+):
+	tracker = _progress_trackers.get(_tracker_key(message))
+	if tracker is None:
+		return
+
+	tracker["current_percent"] = start_percent
+	await _safe_edit_progress(message, _render_progress_text(tracker, tracker.get("last_text") or ""))
+
+	percent_span = max(max_percent - start_percent, 0)
+	if percent_span <= 0:
+		return
+
+	delay = max(float(total_seconds) / percent_span, 0.1)
+	percent = start_percent
+
+	while not stop_event.is_set() and percent < max_percent:
+		await asyncio.sleep(delay)
+		if stop_event.is_set():
+			break
+
+		percent += 1
+		tracker = _progress_trackers.get(_tracker_key(message))
+		if tracker is None:
+			break
+
+		tracker["current_percent"] = percent
+		await _safe_edit_progress(message, _render_progress_text(tracker, tracker.get("last_text") or ""))
+
+
 async def start_progress_message(message, label, auto_increment=True):
 	stop_event = asyncio.Event()
 	tracker = {
 		"last_text": label,
 		"slow_active": False,
+		"show_percent": False,
+		"current_percent": 0,
 		"slow_task": asyncio.create_task(_slow_progress_worker(message, stop_event, SLOW_PROGRESS_SECONDS)),
 	}
 	_progress_trackers[_tracker_key(message)] = tracker
@@ -179,6 +220,35 @@ async def start_progress_message(message, label, auto_increment=True):
 		return None, stop_event
 
 	task = asyncio.create_task(_progress_worker(message, label, stop_event))
+	return task, stop_event
+
+
+async def start_timed_progress_message(
+	message,
+	label,
+	start_percent=1,
+	max_percent=100,
+	total_seconds=150,
+):
+	stop_event = asyncio.Event()
+	tracker = {
+		"last_text": label,
+		"slow_active": False,
+		"show_percent": True,
+		"current_percent": start_percent,
+		"slow_task": asyncio.create_task(_slow_progress_worker(message, stop_event, SLOW_PROGRESS_SECONDS)),
+	}
+	_progress_trackers[_tracker_key(message)] = tracker
+	_progress_trackers_by_stop_event[id(stop_event)] = (_tracker_key(message), tracker)
+	task = asyncio.create_task(
+		_timed_progress_worker(
+			message,
+			stop_event,
+			start_percent,
+			max_percent,
+			total_seconds,
+		)
+	)
 	return task, stop_event
 
 

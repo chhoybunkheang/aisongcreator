@@ -45,6 +45,7 @@ from app.utils.helpers import (
     send_photo_with_status,
     send_video_with_status,
     start_progress_message,
+    start_timed_progress_message,
     stop_progress_message,
 )
 
@@ -515,10 +516,14 @@ async def ms_gen_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if subtitles_enabled and song.lyrics and song.mp3_path
         else "Creating music video...\nPreparing render..."
     )
-    progress_task, progress_stop = await start_progress_message(
+    progress_task, progress_stop = await start_timed_progress_message(
         query.message,
-        "Generating subtitles..." if subtitles_enabled and song.lyrics and song.mp3_path else "Creating music video...",
-        auto_increment=False,
+        "Generating subtitles...\nPreparing request..."
+        if subtitles_enabled and song.lyrics and song.mp3_path
+        else "Creating music video...\nPreparing render...",
+        start_percent=1,
+        max_percent=100,
+        total_seconds=150,
     )
     progress_callback = make_progress_notifier(asyncio.get_running_loop(), query.message)
 
