@@ -19,6 +19,7 @@ from app.config.settings import (
     GENERATED_VIDEOS_DIR,
 )
 from app.database.queries import (
+    create_user,
     deduct_credit,
     get_enabled_song_languages,
     get_song_by_id,
@@ -476,11 +477,28 @@ def _save_lyrics_draft(context, telegram_id):
 # -----------------------------
 async def create_song(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-    telegram_id = update.effective_user.id
+    effective_user = update.effective_user
+    message = update.message
+    if effective_user is None or message is None:
+        return ConversationHandler.END
+
+    telegram_id = effective_user.id
     user = get_user(telegram_id)
+    if not user:
+        create_user(
+            telegram_id=telegram_id,
+            name=effective_user.first_name,
+        )
+        user = get_user(telegram_id)
+
+    if not user:
+        await message.reply_text(
+            "❌ Unable to start song creation right now. Please send /start and try again."
+        )
+        return ConversationHandler.END
 
     if user.credits <= 0:
-        await update.message.reply_text(
+        await message.reply_text(
             "❌ You don't have enough credits.\n\n"
             "💎 Please buy more credits."
         )
@@ -489,7 +507,7 @@ async def create_song(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = _entry_type_keyboard()
     await replace_flow_message(
         context,
-        update.message.reply_text,
+        message.reply_text,
         f"💎 Full song credits: {user.credits}\n\nChoose how you want to create your song:",
         reply_markup=keyboard,
         state_key="song_flow_message_id",
