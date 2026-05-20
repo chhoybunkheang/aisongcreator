@@ -75,6 +75,7 @@ def create_user(telegram_id, name):
     user = User(
         telegram_id=str(telegram_id),
         name=name,
+        credits=1,
     )
 
     db.add(user)
@@ -325,6 +326,25 @@ def update_enabled_song_languages(languages):
 
     db.commit()
     db.close()
+
+
+def _load_json_setting_value(db, setting_key, default_value):
+
+    setting = (
+        db.query(AppSetting)
+        .filter(AppSetting.key == setting_key)
+        .first()
+    )
+
+    if not setting or not setting.value:
+        return default_value, setting
+
+    try:
+        parsed = json.loads(setting.value)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return default_value, setting
+
+    return parsed, setting
 
 
 def get_payment_qr_file_ids():

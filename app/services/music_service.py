@@ -108,8 +108,6 @@ def _optimize_mp3_file(mp3_path):
             audio_clip.close()
 
     return mp3_path
-
-
 async def _save_edge_tts_mp3(text, mp3_path, singer_gender="female"):
     import edge_tts
 

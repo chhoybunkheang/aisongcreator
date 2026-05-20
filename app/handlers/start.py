@@ -24,7 +24,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context,
         update.message.reply_text,
         f"🎵 Welcome to AI Song Bot!\n\n"
-        f"💎 Credits: {user.credits}\n\n"
+        f"Start here with {user.credits} full song credit.\n\n"
+        f"💎 Full song credits: {user.credits}\n\n"
         f"Choose an option below:",
         reply_markup=get_main_menu(),
         state_key="start_flow_message_id",

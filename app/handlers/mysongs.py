@@ -49,10 +49,10 @@ from app.utils.helpers import (
     stop_progress_message,
 )
 
-MP3_QUEUE_SECONDS = 60
-COVER_QUEUE_SECONDS = 60
-VIDEO_QUEUE_SECONDS = 60
-VIDEO_WITH_SUBTITLES_QUEUE_SECONDS = 150
+MP3_QUEUE_SECONDS = 50
+COVER_QUEUE_SECONDS = 40
+VIDEO_QUEUE_SECONDS = 120
+VIDEO_WITH_SUBTITLES_QUEUE_SECONDS = 120
 MP3_TO_LYRICS_QUEUE_SECONDS = 60
 
 
@@ -62,6 +62,15 @@ async def _safe_answer(query):
         await query.answer()
     except tg_error.BadRequest:
         pass  # query expired (>30s old) - safe to ignore
+
+
+def _mp3_caption(title):
+    return f"🎵 Title: {title}\nAI Generated Song"
+
+
+def _video_caption(title, subtitles_enabled=False):
+    suffix = " with subtitles" if subtitles_enabled else ""
+    return f"🎬 Title: {title}\nAI Music Video{suffix}"
 
 
 def _language_flag(language):
@@ -349,7 +358,7 @@ async def ms_gen_mp3(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 chat_id=query.message.chat_id,
                 audio=audio,
                 title=song.topic,
-                caption="Your AI Generated Song",
+                caption=_mp3_caption(song.topic),
                 status_message=query.message,
                 upload_text="MP3 ready. Uploading to Telegram...",
                 complete_text="MP3 uploaded",
@@ -586,7 +595,7 @@ async def ms_gen_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 context.bot,
                 chat_id=query.message.chat_id,
                 video=video,
-                caption="Your AI Music Video",
+                caption=_video_caption(song.topic, subtitles_enabled=subtitles_enabled),
                 status_message=query.message,
                 upload_text="Video ready. Uploading to Telegram...",
                 complete_text="Video uploaded",
@@ -816,6 +825,7 @@ async def play_mp3(update: Update, context: ContextTypes.DEFAULT_TYPE):
             chat_id=query.message.chat_id,
             audio=audio,
             title=song.topic,
+            caption=_mp3_caption(song.topic),
             read_timeout=300,
             write_timeout=300,
         )
@@ -989,7 +999,7 @@ async def watch_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.bot,
             chat_id=query.message.chat_id,
             video=video,
-            caption=song.topic,
+            caption=_video_caption(song.topic, subtitles_enabled=bool(song.subtitle_timing)),
             read_timeout=300,
             write_timeout=300,
         )
@@ -1038,7 +1048,7 @@ async def add_subtitle_to_video(update: Update, context: ContextTypes.DEFAULT_TY
                 context.bot,
                 chat_id=query.message.chat_id,
                 video=video,
-                caption=song.topic,
+                caption=_video_caption(song.topic, subtitles_enabled=bool(song.subtitle_timing)),
                 read_timeout=300,
                 write_timeout=300,
             )
@@ -1058,7 +1068,11 @@ async def add_subtitle_to_video(update: Update, context: ContextTypes.DEFAULT_TY
             text=(
                 "❌ You need more than 10 credits to add or update subtitles.\n\n"
                 "💎 Please add credit."
-            )
+            ),
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("💎 Buy Credits", callback_data="buycredits_menu"),
+                InlineKeyboardButton("⬅️ Back", callback_data=f"watchvid_{song.id}"),
+            ]]),
         )
         return
 
@@ -1115,7 +1129,7 @@ async def add_subtitle_to_video(update: Update, context: ContextTypes.DEFAULT_TY
                 context.bot,
                 chat_id=query.message.chat_id,
                 video=video,
-                caption=f"{song.topic} with subtitles",
+                caption=_video_caption(song.topic, subtitles_enabled=True),
                 status_message=progress_message,
                 upload_text="Subtitled video ready. Uploading to Telegram...",
                 complete_text="Subtitled video uploaded",

@@ -27,7 +27,9 @@ from app.database.queries import (
     update_song_video,
 )
 from app.services.image_service import generate_cover_image
-from app.services.music_service import generate_music
+from app.services.music_service import (
+    generate_music,
+)
 from app.services.openai_service import generate_lyrics, generate_subtitle_timing
 from app.services.video_service import create_music_video
 from app.states.song_states import (
@@ -68,10 +70,10 @@ from app.utils.validators import (
     validate_topic,
 )
 
-MP3_QUEUE_SECONDS = 60
-COVER_QUEUE_SECONDS = 60
-VIDEO_QUEUE_SECONDS = 60
-VIDEO_WITH_SUBTITLES_QUEUE_SECONDS = 150
+MP3_QUEUE_SECONDS = 50
+COVER_QUEUE_SECONDS = 40
+VIDEO_QUEUE_SECONDS = 120
+VIDEO_WITH_SUBTITLES_QUEUE_SECONDS = 120
 
 
 def _yes_no_keyboard():
@@ -80,6 +82,27 @@ def _yes_no_keyboard():
             InlineKeyboardButton("✅ Yes", callback_data="yes"),
             InlineKeyboardButton("❌ No", callback_data="no"),
         ]
+    ])
+
+
+def _mp3_caption(title):
+    return f"🎵 Title: {title}\nAI Generated Song"
+
+
+def _video_caption(title, subtitles_enabled=False):
+    suffix = " with subtitles" if subtitles_enabled else ""
+    return f"🎬 Title: {title}\nAI Music Video{suffix}"
+
+
+def _mp3_delivery_keyboard():
+    rows = [[InlineKeyboardButton("🎵 Full MP3", callback_data="mp3_full")]]
+    rows.append([InlineKeyboardButton("❌ Cancel", callback_data="mp3_cancel")])
+    return InlineKeyboardMarkup(rows)
+
+
+def _unlock_full_song_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("💎 Buy Credits", callback_data="buycredits_menu")],
     ])
 
 
@@ -406,6 +429,15 @@ async def _safe_answer(query):
         pass  # query expired (>30s old) — safe to ignore
 
 
+def _entry_type_keyboard():
+    rows = [
+        [InlineKeyboardButton("🎵 New Lyrics", callback_data="type_new")],
+        [InlineKeyboardButton("📝 My Lyrics", callback_data="type_mylyrics")],
+        [InlineKeyboardButton("📋 Past Lyric", callback_data="type_paste")],
+    ]
+    return InlineKeyboardMarkup(rows)
+
+
 def _save_lyrics_draft(context, telegram_id):
     if context.user_data.get("song_id"):
         return context.user_data["song_id"]
@@ -441,15 +473,11 @@ async def create_song(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return ConversationHandler.END
 
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🎵 New Lyrics", callback_data="type_new")],
-        [InlineKeyboardButton("📝 My Lyrics", callback_data="type_mylyrics")],
-        [InlineKeyboardButton("📋 Past Lyric", callback_data="type_paste")],
-    ])
+    keyboard = _entry_type_keyboard()
     await replace_flow_message(
         context,
         update.message.reply_text,
-        f"💎 Credits: {user.credits}\n\nChoose how you want to create your song:",
+        f"💎 Full song credits: {user.credits}\n\nChoose how you want to create your song:",
         reply_markup=keyboard,
         state_key="song_flow_message_id",
     )
@@ -822,7 +850,7 @@ async def lyrics_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
         _persist_current_lyrics(context, query.from_user.id)
         await query.edit_message_text(
             "🎧 Do you want to convert this to MP3?",
-            reply_markup=_yes_no_keyboard(),
+            reply_markup=_mp3_delivery_keyboard(),
         )
         return CONFIRM_MP3
 
@@ -860,19 +888,35 @@ async def confirm_mp3(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await _safe_answer(query)
 
-    if query.data == "no":
+    action = query.data or ""
+
+    if action in {"no", "mp3_cancel"}:
         await query.edit_message_text("👍 Okay! Song creation stopped.")
         return ConversationHandler.END
+
+    if action not in {"yes", "mp3_full", ""}:
+        await query.edit_message_text("❌ Invalid option.")
+        return ConversationHandler.END
+
+    user = get_user(query.from_user.id)
+    if not user or user.credits <= 0:
+        await query.edit_message_text(
+            "❌ You do not have enough credits for the full MP3.\n\n"
+            "💎 Buy credits to unlock the full song.",
+            reply_markup=_unlock_full_song_keyboard(),
+        )
+        return CONFIRM_MP3
 
     style = context.user_data["style"]
     topic = context.user_data["topic"]
     mood = context.user_data["mood"]
     lyrics = context.user_data["lyrics"]
 
-    await query.edit_message_text("⏳ Generating MP3...\nPreparing request...")
+    initial_progress_text = "⏳ Generating MP3...\nPreparing request..."
+    await query.edit_message_text(initial_progress_text)
     progress_task, progress_stop = await start_timed_progress_message(
         query.message,
-        "⏳ Generating MP3...\nPreparing request...",
+        initial_progress_text,
         start_percent=1,
         max_percent=95,
         total_seconds=MP3_QUEUE_SECONDS,
@@ -887,6 +931,7 @@ async def confirm_mp3(update: Update, context: ContextTypes.DEFAULT_TYPE):
             singer_gender=context.user_data.get("singer_gender", "female"),
             progress_callback=progress_callback,
         )
+
         context.user_data["mp3_file"] = mp3_file
 
         subtitle_timing = []
@@ -913,7 +958,7 @@ async def confirm_mp3(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 chat_id=query.message.chat_id,
                 audio=audio,
                 title=topic,
-                caption="🎵 Your AI Generated Song",
+                caption=_mp3_caption(topic),
                 status_message=query.message,
                 upload_text="⏫ MP3 ready. Uploading to Telegram...",
                 complete_text="✅ MP3 uploaded",
@@ -1197,7 +1242,7 @@ async def confirm_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 context.bot,
                 chat_id=query.message.chat_id,
                 video=video,
-                caption="🎬 Your AI Music Video",
+                caption=_video_caption(topic, subtitles_enabled=subtitles_enabled),
                 status_message=query.message,
                 upload_text="⏫ Video ready. Uploading to Telegram...",
                 complete_text="✅ Video uploaded",
