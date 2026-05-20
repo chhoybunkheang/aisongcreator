@@ -18,6 +18,14 @@ VIDEO_RETRY_ATTEMPTS = 2
 VIDEO_RETRY_DELAY_SECONDS = 2
 
 
+def _validate_rendered_video(output_path):
+    if not os.path.exists(output_path):
+        raise ValueError("Video render did not create an output file")
+
+    if os.path.getsize(output_path) <= 0:
+        raise ValueError("Video render produced an empty output file")
+
+
 def _is_retryable_video_error(error):
     error_text = str(error or "").strip().lower()
     retry_markers = (
@@ -189,6 +197,7 @@ def create_music_video(audio_path, image_path, output_path, lyrics=None, subtitl
                 audio_bitrate=AUDIO_BITRATE,
                 preset=VIDEO_PRESET,
             )
+            _validate_rendered_video(output_path)
             if progress_callback:
                 progress_callback("✅ Video created 100%")
             return output_path

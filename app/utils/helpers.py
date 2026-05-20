@@ -1,4 +1,5 @@
 import asyncio
+import os
 from contextlib import suppress
 
 from telegram import error as tg_error
@@ -220,6 +221,26 @@ async def retry_telegram_call(callback, *args, retries=3, delay=2, **kwargs):
 	raise last_error
 
 
+def _uploaded_file_is_empty(upload):
+	if upload is None:
+		return True
+
+	if isinstance(upload, (str, os.PathLike)):
+		return not os.path.exists(upload) or os.path.getsize(upload) <= 0
+
+	if hasattr(upload, "seek") and hasattr(upload, "tell"):
+		try:
+			current_position = upload.tell()
+			upload.seek(0, os.SEEK_END)
+			size = upload.tell()
+			upload.seek(current_position)
+			return size <= 0
+		except (OSError, ValueError):
+			return False
+
+	return False
+
+
 async def send_video_with_status(
 	bot,
 	chat_id,
@@ -230,6 +251,9 @@ async def send_video_with_status(
 	complete_text=None,
 	**kwargs,
 ):
+	if _uploaded_file_is_empty(video):
+		raise ValueError("Video file is empty")
+
 	if status_message is not None and upload_text:
 		await _safe_edit_progress(status_message, upload_text)
 
