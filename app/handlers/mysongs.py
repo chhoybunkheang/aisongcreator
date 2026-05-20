@@ -49,6 +49,12 @@ from app.utils.helpers import (
     stop_progress_message,
 )
 
+MP3_QUEUE_SECONDS = 60
+COVER_QUEUE_SECONDS = 60
+VIDEO_QUEUE_SECONDS = 60
+VIDEO_WITH_SUBTITLES_QUEUE_SECONDS = 150
+MP3_TO_LYRICS_QUEUE_SECONDS = 60
+
 
 async def _safe_answer(query):
     """Answer a callback query, ignoring expired/invalid query errors."""
@@ -303,10 +309,12 @@ async def ms_gen_mp3(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     await query.edit_message_text("Generating MP3...\nPreparing request...")
-    progress_task, progress_stop = await start_progress_message(
+    progress_task, progress_stop = await start_timed_progress_message(
         query.message,
-        "Generating MP3...",
-        auto_increment=False,
+        "Generating MP3...\nPreparing request...",
+        start_percent=1,
+        max_percent=95,
+        total_seconds=MP3_QUEUE_SECONDS,
     )
     progress_callback = make_progress_notifier(asyncio.get_running_loop(), query.message)
 
@@ -320,7 +328,6 @@ async def ms_gen_mp3(update: Update, context: ContextTypes.DEFAULT_TYPE):
             language=song.language or "",
             progress_callback=progress_callback,
         )
-        await stop_progress_message(progress_task, progress_stop)
         deduct_credit(query.from_user.id)
         update_song_mp3(song_id, mp3_file)
         subtitle_timing = []
@@ -349,6 +356,13 @@ async def ms_gen_mp3(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 read_timeout=300,
                 write_timeout=300,
             )
+
+        await stop_progress_message(
+            progress_task,
+            progress_stop,
+            query.message,
+            "MP3 uploaded 100%"
+        )
 
         song = get_song_by_id(song_id)
         markup = _next_step_markup(song)
@@ -393,10 +407,12 @@ async def ms_gen_cover(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     await query.edit_message_text("Generating cover image...\nPreparing request...")
-    progress_task, progress_stop = await start_progress_message(
+    progress_task, progress_stop = await start_timed_progress_message(
         query.message,
-        "Generating cover image...",
-        auto_increment=False,
+        "Generating cover image...\nPreparing request...",
+        start_percent=1,
+        max_percent=95,
+        total_seconds=COVER_QUEUE_SECONDS,
     )
     progress_callback = make_progress_notifier(asyncio.get_running_loop(), query.message)
 
@@ -408,7 +424,6 @@ async def ms_gen_cover(update: Update, context: ContextTypes.DEFAULT_TYPE):
             style=song.style,
             progress_callback=progress_callback,
         )
-        await stop_progress_message(progress_task, progress_stop)
         update_song_cover(song_id, cover_image)
 
         with open(cover_image, "rb") as photo:
@@ -421,6 +436,13 @@ async def ms_gen_cover(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 upload_text="Cover ready. Uploading to Telegram...",
                 complete_text="Cover uploaded",
             )
+
+        await stop_progress_message(
+            progress_task,
+            progress_stop,
+            query.message,
+            "Cover uploaded 100%"
+        )
 
         song = get_song_by_id(song_id)
         markup = _next_step_markup(song)
@@ -522,8 +544,8 @@ async def ms_gen_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if subtitles_enabled and song.lyrics and song.mp3_path
         else "Creating music video...\nPreparing render...",
         start_percent=1,
-        max_percent=100,
-        total_seconds=150,
+        max_percent=95,
+        total_seconds=VIDEO_WITH_SUBTITLES_QUEUE_SECONDS if subtitles_enabled else VIDEO_QUEUE_SECONDS,
     )
     progress_callback = make_progress_notifier(asyncio.get_running_loop(), query.message)
 
@@ -557,7 +579,6 @@ async def ms_gen_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
             subtitles_enabled=subtitles_enabled,
             progress_callback=progress_callback,
         )
-        await stop_progress_message(progress_task, progress_stop)
         update_song_video(song_id, video_path)
 
         with open(video_path, "rb") as video:
@@ -572,6 +593,13 @@ async def ms_gen_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 read_timeout=300,
                 write_timeout=300,
             )
+
+        await stop_progress_message(
+            progress_task,
+            progress_stop,
+            query.message,
+            "Video uploaded 100%"
+        )
 
         if subtitles_enabled:
             deduct_credit(query.from_user.id)
@@ -865,10 +893,12 @@ async def mp3_to_lyrics(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     await query.edit_message_text("⏳ Recovering lyrics from MP3...\nPreparing request...")
-    progress_task, progress_stop = await start_progress_message(
+    progress_task, progress_stop = await start_timed_progress_message(
         query.message,
-        "⏳ Recovering lyrics from MP3...",
-        auto_increment=False,
+        "⏳ Recovering lyrics from MP3...\nPreparing request...",
+        start_percent=1,
+        max_percent=100,
+        total_seconds=MP3_TO_LYRICS_QUEUE_SECONDS,
     )
     progress_callback = make_progress_notifier(asyncio.get_running_loop(), query.message)
 

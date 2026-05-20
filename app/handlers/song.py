@@ -67,6 +67,11 @@ from app.utils.validators import (
     validate_topic,
 )
 
+MP3_QUEUE_SECONDS = 60
+COVER_QUEUE_SECONDS = 60
+VIDEO_QUEUE_SECONDS = 60
+VIDEO_WITH_SUBTITLES_QUEUE_SECONDS = 150
+
 
 def _yes_no_keyboard():
     return InlineKeyboardMarkup([
@@ -846,10 +851,12 @@ async def confirm_mp3(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lyrics = context.user_data["lyrics"]
 
     await query.edit_message_text("⏳ Generating MP3...\nPreparing request...")
-    progress_task, progress_stop = await start_progress_message(
+    progress_task, progress_stop = await start_timed_progress_message(
         query.message,
-        "⏳ Generating MP3...",
-        auto_increment=False,
+        "⏳ Generating MP3...\nPreparing request...",
+        start_percent=1,
+        max_percent=95,
+        total_seconds=MP3_QUEUE_SECONDS,
     )
     progress_callback = make_progress_notifier(asyncio.get_running_loop(), query.message)
 
@@ -860,12 +867,6 @@ async def confirm_mp3(update: Update, context: ContextTypes.DEFAULT_TYPE):
             language=context.user_data.get("language", ""),
             singer_gender=context.user_data.get("singer_gender", "female"),
             progress_callback=progress_callback,
-        )
-        await stop_progress_message(
-            progress_task,
-            progress_stop,
-            query.message,
-            "✅ MP3 generated 100%"
         )
         context.user_data["mp3_file"] = mp3_file
 
@@ -900,6 +901,13 @@ async def confirm_mp3(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 read_timeout=300,
                 write_timeout=300,
             )
+
+        await stop_progress_message(
+            progress_task,
+            progress_stop,
+            query.message,
+            "✅ MP3 uploaded 100%"
+        )
 
         await replace_flow_message(
             context,
@@ -967,10 +975,12 @@ async def choose_cover_source(update: Update, context: ContextTypes.DEFAULT_TYPE
     style = context.user_data["style"]
 
     await query.edit_message_text("⏳ Generating cover image...\nPreparing request...")
-    progress_task, progress_stop = await start_progress_message(
+    progress_task, progress_stop = await start_timed_progress_message(
         query.message,
-        "⏳ Generating cover image...",
-        auto_increment=False,
+        "⏳ Generating cover image...\nPreparing request...",
+        start_percent=1,
+        max_percent=95,
+        total_seconds=COVER_QUEUE_SECONDS,
     )
     progress_callback = make_progress_notifier(asyncio.get_running_loop(), query.message)
 
@@ -980,7 +990,6 @@ async def choose_cover_source(update: Update, context: ContextTypes.DEFAULT_TYPE
             topic=topic, mood=mood, style=style,
             progress_callback=progress_callback,
         )
-        await stop_progress_message(progress_task, progress_stop)
         context.user_data["cover_image"] = cover_image
         if context.user_data.get("song_id"):
             update_song_cover(context.user_data["song_id"], cover_image)
@@ -995,6 +1004,13 @@ async def choose_cover_source(update: Update, context: ContextTypes.DEFAULT_TYPE
                 upload_text="⏫ Cover ready. Uploading to Telegram...",
                 complete_text="✅ Cover uploaded",
             )
+
+        await stop_progress_message(
+            progress_task,
+            progress_stop,
+            query.message,
+            "✅ Cover uploaded 100%"
+        )
 
         await replace_flow_message(
             context,
@@ -1116,8 +1132,8 @@ async def confirm_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if subtitles_enabled and context.user_data.get("lyrics")
         else "⏳ Creating music video...\nPreparing render...",
         start_percent=1,
-        max_percent=100,
-        total_seconds=150,
+        max_percent=95,
+        total_seconds=VIDEO_WITH_SUBTITLES_QUEUE_SECONDS if subtitles_enabled else VIDEO_QUEUE_SECONDS,
     )
     progress_callback = make_progress_notifier(asyncio.get_running_loop(), query.message)
 
@@ -1154,7 +1170,6 @@ async def confirm_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
             subtitles_enabled=subtitles_enabled,
             progress_callback=progress_callback,
         )
-        await stop_progress_message(progress_task, progress_stop)
         if context.user_data.get("song_id"):
             update_song_video(context.user_data["song_id"], video_path)
 
@@ -1170,6 +1185,13 @@ async def confirm_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 read_timeout=300,
                 write_timeout=300,
             )
+
+        await stop_progress_message(
+            progress_task,
+            progress_stop,
+            query.message,
+            "✅ Video uploaded 100%"
+        )
 
         if subtitles_enabled:
             deduct_credit(query.from_user.id)
