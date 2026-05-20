@@ -15,7 +15,6 @@ FLOW_MESSAGE_STATE_KEYS = (
 )
 
 SLOW_PROGRESS_SECONDS = 45
-SLOW_PROGRESS_SUFFIX = "\n\n⌛ This is taking longer than usual. The bot is still working."
 _progress_trackers = {}
 _progress_trackers_by_stop_event = {}
 
@@ -109,10 +108,6 @@ def _render_progress_text(tracker, text):
 		current_percent = int(tracker.get("current_percent") or 0)
 		percent_line = f"📊 Queue Status: {current_percent}%"
 		base_text = f"{base_text}\n{percent_line}" if base_text else percent_line
-	if tracker and tracker.get("slow_active"):
-		if base_text.endswith(SLOW_PROGRESS_SUFFIX):
-			return base_text
-		return f"{base_text}{SLOW_PROGRESS_SUFFIX}"
 	return base_text
 
 
