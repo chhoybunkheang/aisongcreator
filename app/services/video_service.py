@@ -1,6 +1,7 @@
 import json
 import os
 import time
+from math import pi, sin
 from textwrap import wrap
 
 from moviepy import AudioFileClip, CompositeVideoClip, ImageClip, TextClip
@@ -16,6 +17,9 @@ SUBTITLE_WRAP = 42
 SUBTITLE_TEXT_COLOR = "white"
 VIDEO_RETRY_ATTEMPTS = 2
 VIDEO_RETRY_DELAY_SECONDS = 2
+ANIMATED_COVER_SCALE = 1.08
+PULSE_BEATS_PER_SECOND = 1.9
+PULSE_SCALE_AMOUNT = 0.035
 
 
 def _validate_rendered_video(output_path):
@@ -155,7 +159,56 @@ def _build_timed_subtitle_clips(subtitle_segments, duration, frame_size):
     return subtitle_clips
 
 
-def create_music_video(audio_path, image_path, output_path, lyrics=None, subtitle_timing=None, subtitles_enabled=True, progress_callback=None):
+def _normalize_animation_style(animation_style):
+    normalized = str(animation_style or "").strip().lower()
+    if normalized in {"pan", "pulse", "pan_pulse", "none"}:
+        return normalized
+    return "pan_pulse"
+
+
+def _build_animated_cover_clip(image_path, duration, animation_style="pan_pulse"):
+    animation_style = _normalize_animation_style(animation_style)
+    base_image = (
+        ImageClip(image_path)
+        .with_duration(duration)
+        .resized(height=VIDEO_HEIGHT)
+    )
+    frame_size = base_image.size
+
+    if animation_style == "none":
+        return base_image, frame_size
+
+    frame_width, frame_height = frame_size
+    duration = max(float(duration or 0.0), 0.1)
+
+    def scale_at_time(t):
+        base_scale = ANIMATED_COVER_SCALE if animation_style in {"pan", "pan_pulse"} else 1.0
+        pulse = max(0.0, sin(2 * pi * PULSE_BEATS_PER_SECOND * t)) if animation_style in {"pulse", "pan_pulse"} else 0.0
+        return base_scale + (PULSE_SCALE_AMOUNT * pulse)
+
+    def position_at_time(t):
+        progress = min(max(t / duration, 0.0), 1.0)
+        x_factor = progress if animation_style in {"pan", "pan_pulse"} else 0.5
+        y_factor = 0.35 * progress if animation_style in {"pan", "pan_pulse"} else 0.5
+        scale_offset = scale_at_time(t) - 1.0
+        return (
+            -(frame_width * scale_offset * x_factor),
+            -(frame_height * scale_offset * y_factor),
+        )
+
+    animated_cover = base_image.resized(scale_at_time)
+
+    animated_clip = CompositeVideoClip(
+        [
+            animated_cover.with_position(position_at_time)
+        ],
+        size=frame_size,
+    ).with_duration(duration)
+    base_image.close()
+    return animated_clip, frame_size
+
+
+def create_music_video(audio_path, image_path, output_path, animation_style="pan_pulse", lyrics=None, subtitle_timing=None, subtitles_enabled=True, progress_callback=None):
     last_error = None
 
     for attempt in range(1, VIDEO_RETRY_ATTEMPTS + 1):
@@ -166,22 +219,18 @@ def create_music_video(audio_path, image_path, output_path, lyrics=None, subtitl
                 progress_callback(f"⏳ Creating music video...\nRetrying render ({attempt}/{VIDEO_RETRY_ATTEMPTS})...")
 
         audio = AudioFileClip(audio_path)
-        image = (
-            ImageClip(image_path)
-            .with_duration(audio.duration)
-            .resized(height=VIDEO_HEIGHT)
-        )
+        cover_video, frame_size = _build_animated_cover_clip(image_path, audio.duration, animation_style=animation_style)
 
         subtitle_clips = []
-        video = image.with_audio(audio)
+        video = cover_video.with_audio(audio)
 
         try:
             if subtitles_enabled:
                 subtitle_segments = _load_subtitle_segments(subtitle_timing)
-                subtitle_clips = _build_timed_subtitle_clips(subtitle_segments, audio.duration, image.size)
+                subtitle_clips = _build_timed_subtitle_clips(subtitle_segments, audio.duration, frame_size)
                 if not subtitle_clips:
                     subtitle_lines = _build_subtitle_lines(lyrics)
-                    subtitle_clips = _build_subtitle_clips(subtitle_lines, audio.duration, image.size)
+                    subtitle_clips = _build_subtitle_clips(subtitle_lines, audio.duration, frame_size)
                 if subtitle_clips:
                     video = CompositeVideoClip([video, *subtitle_clips]).with_audio(audio)
 
@@ -215,7 +264,7 @@ def create_music_video(audio_path, image_path, output_path, lyrics=None, subtitl
             time.sleep(VIDEO_RETRY_DELAY_SECONDS)
         finally:
             video.close()
-            image.close()
+            cover_video.close()
             audio.close()
             for subtitle_clip in subtitle_clips:
                 subtitle_clip.close()

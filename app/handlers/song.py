@@ -86,6 +86,14 @@ def _yes_no_keyboard():
     ])
 
 
+def _animation_style_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🌊 Pan Motion", callback_data="anim_pan")],
+        [InlineKeyboardButton("💓 Beat Pulse", callback_data="anim_pulse")],
+        [InlineKeyboardButton("✨ Pan + Pulse", callback_data="anim_pan_pulse")],
+    ])
+
+
 def _mp3_caption(title):
     return f"🎵 Title: {title}\nCreated by: {BOT_USERNAME_LABEL}"
 
@@ -1155,7 +1163,7 @@ async def confirm_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user = get_user(query.from_user.id)
 
-    if not context.user_data.get("video_subtitle_prompt_pending"):
+    if not context.user_data.get("video_animation_prompt_pending") and not context.user_data.get("video_animation_style_prompt_pending") and not context.user_data.get("video_subtitle_prompt_pending"):
         if query.data == "no":
             await query.edit_message_text(
                 f"✅ All done!\n\n"
@@ -1163,6 +1171,48 @@ async def confirm_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return ConversationHandler.END
 
+        context.user_data["video_animation_prompt_pending"] = True
+        await query.edit_message_text(
+            "✨ Do you want to add animation to the video?",
+            reply_markup=_yes_no_keyboard()
+        )
+        return CONFIRM_VIDEO
+
+    if context.user_data.get("video_animation_prompt_pending"):
+        context.user_data.pop("video_animation_prompt_pending", None)
+
+        if query.data == "yes":
+            context.user_data["video_animation_style_prompt_pending"] = True
+            await query.edit_message_text(
+                "🎞 Choose the animation style for your video:",
+                reply_markup=_animation_style_keyboard()
+            )
+            return CONFIRM_VIDEO
+
+        context.user_data["video_animation_style"] = "none"
+        context.user_data["video_subtitle_prompt_pending"] = True
+        await query.edit_message_text(
+            "📝 Do you want to add subtitles to the video?",
+            reply_markup=_yes_no_keyboard()
+        )
+        return CONFIRM_VIDEO
+
+    if context.user_data.get("video_animation_style_prompt_pending"):
+        animation_map = {
+            "anim_pan": "pan",
+            "anim_pulse": "pulse",
+            "anim_pan_pulse": "pan_pulse",
+        }
+        animation_style = animation_map.get(query.data)
+        if not animation_style:
+            await query.edit_message_text(
+                "🎞 Choose the animation style for your video:",
+                reply_markup=_animation_style_keyboard()
+            )
+            return CONFIRM_VIDEO
+
+        context.user_data.pop("video_animation_style_prompt_pending", None)
+        context.user_data["video_animation_style"] = animation_style
         context.user_data["video_subtitle_prompt_pending"] = True
         await query.edit_message_text(
             "📝 Do you want to add subtitles to the video?",
@@ -1230,6 +1280,7 @@ async def confirm_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
             audio_path=mp3_file,
             image_path=cover_image,
             output_path=video_path,
+            animation_style=context.user_data.get("video_animation_style", "none"),
             lyrics=context.user_data.get("lyrics"),
             subtitle_timing=subtitle_timing,
             subtitles_enabled=subtitles_enabled,
