@@ -74,3 +74,29 @@ class AppSetting(Base):
     key = Column(String, unique=True, nullable=False)
 
     value = Column(Text, nullable=True)
+
+
+# -----------------------------------
+# PAYMENT REQUEST TABLE
+# -----------------------------------
+class PaymentRequest(Base):
+
+    __tablename__ = "payment_requests"
+
+    id = Column(Integer, primary_key=True)
+
+    telegram_id = Column(String, nullable=False)
+
+    credits = Column(Integer, nullable=False)
+
+    payment_method = Column(String, nullable=False)
+
+    receipt_file_id = Column(String, nullable=False)
+
+    receipt_file_unique_id = Column(String, nullable=False)
+
+    status = Column(String, nullable=False, default="pending")
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    processed_at = Column(DateTime, nullable=True)

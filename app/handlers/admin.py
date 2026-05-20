@@ -10,16 +10,28 @@ from telegram.ext import (
 from app.config.settings import ADMIN_ID
 from app.database.queries import (
     add_credits,
+    process_payment_request,
 )
 
 
-async def _approve_payment_request(message, bot, user_id, credits):
+async def _approve_payment_request(message, bot, payment_request_id):
 
-    success = add_credits(user_id, credits)
+    outcome, payload = process_payment_request(payment_request_id, "approved")
 
-    if not success:
+    if outcome == "not_found":
+        await message.reply_text("❌ Payment request not found.")
+        return outcome
+
+    if outcome == "already_processed":
+        await message.reply_text("ℹ️ This payment request was already processed.")
+        return outcome
+
+    if outcome == "user_not_found":
         await message.reply_text("❌ User not found.")
-        return
+        return outcome
+
+    user_id = payload["telegram_id"]
+    credits = payload["credits"]
 
     await bot.send_message(
         chat_id=user_id,
@@ -28,6 +40,7 @@ async def _approve_payment_request(message, bot, user_id, credits):
             f"💎 Added Credits: {credits}"
         )
     )
+    return outcome
 
 
 def _payment_status_text(status_text, actor_name):
@@ -48,15 +61,30 @@ async def _mark_payment_request(message, status_text, actor_name):
     await message.edit_caption(caption=updated_caption, reply_markup=None)
 
 
-async def _reject_payment_request(message, bot, user_id):
+async def _reject_payment_request(message, bot, payment_request_id):
+
+    outcome, payload = process_payment_request(payment_request_id, "rejected")
+
+    if outcome == "not_found":
+        await message.reply_text("❌ Payment request not found.")
+        return outcome
+
+    if outcome == "already_processed":
+        await message.reply_text("ℹ️ This payment request was already processed.")
+        return outcome
+
+    if payload is None:
+        await message.reply_text("❌ Could not reject this payment request.")
+        return outcome
 
     await bot.send_message(
-        chat_id=user_id,
+        chat_id=payload["telegram_id"],
         text=(
             "❌ Payment rejected.\n\n"
             "Please check your payment screenshot and contact admin if needed."
         )
     )
+    return outcome
 # -----------------------------------
 # APPROVE PAYMENT
 # -----------------------------------
@@ -105,14 +133,15 @@ async def approve_payment_callback(
         return
 
     try:
-        _prefix, user_id, credits_text = query.data.split("_", 2)
-        credits = int(credits_text)
+        _prefix, payment_request_id = query.data.split("_", 1)
     except (AttributeError, TypeError, ValueError):
         await query.answer("Invalid approval data.", show_alert=True)
         return
 
     await query.answer("Approving payment...")
-    await _approve_payment_request(query.message, context.bot, user_id, credits)
+    outcome = await _approve_payment_request(query.message, context.bot, payment_request_id)
+    if outcome != "processed":
+        return
     await _mark_payment_request(
         query.message,
         "✅ Payment approved",
@@ -132,13 +161,15 @@ async def reject_payment_callback(
         return
 
     try:
-        _prefix, user_id = query.data.split("_", 1)
+        _prefix, payment_request_id = query.data.split("_", 1)
     except (AttributeError, TypeError, ValueError):
         await query.answer("Invalid rejection data.", show_alert=True)
         return
 
     await query.answer("Rejecting payment...")
-    await _reject_payment_request(query.message, context.bot, user_id)
+    outcome = await _reject_payment_request(query.message, context.bot, payment_request_id)
+    if outcome != "processed":
+        return
     await _mark_payment_request(
         query.message,
         "❌ Payment rejected",
@@ -156,7 +187,7 @@ approve_handler = CommandHandler(
 
 approve_callback_handler = CallbackQueryHandler(
     approve_payment_callback,
-    pattern=r"^approve_\d+_\d+$"
+    pattern=r"^approve_\d+$"
 )
 
 reject_callback_handler = CallbackQueryHandler(

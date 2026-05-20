@@ -59,6 +59,13 @@ from app.utils.helpers import (
     start_timed_progress_message,
     stop_progress_message,
 )
+from app.utils.validators import (
+    validate_description,
+    validate_lyrics,
+    validate_mood,
+    validate_style,
+    validate_topic,
+)
 
 
 def _yes_no_keyboard():
@@ -527,7 +534,12 @@ async def pick_saved_lyrics(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # -----------------------------
 async def get_pasted_lyrics(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-    context.user_data["lyrics"] = update.message.text
+    lyrics, error_message = validate_lyrics(update.message.text)
+    if error_message:
+        await update.message.reply_text(error_message)
+        return PASTE_LYRICS
+
+    context.user_data["lyrics"] = lyrics
     context.user_data["description"] = ""
     await replace_flow_message(
         context,
@@ -575,7 +587,12 @@ async def choose_song_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # -----------------------------
 async def get_music_style(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-    context.user_data["style"] = update.message.text
+    style, error_message = validate_style(update.message.text)
+    if error_message:
+        await update.message.reply_text(error_message)
+        return MUSIC_STYLE
+
+    context.user_data["style"] = style
     await replace_flow_message(
         context,
         update.message.reply_text,
@@ -608,7 +625,12 @@ async def choose_music_style(update: Update, context: ContextTypes.DEFAULT_TYPE)
 # -----------------------------
 async def get_topic(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-    context.user_data["topic"] = update.message.text
+    topic, error_message = validate_topic(update.message.text)
+    if error_message:
+        await update.message.reply_text(error_message)
+        return TOPIC
+
+    context.user_data["topic"] = topic
     song_type_code = context.user_data.get("song_type", "custom")
     song_type_label = _song_type_label(song_type_code)
     await replace_flow_message(
@@ -627,7 +649,12 @@ async def get_topic(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # -----------------------------
 async def get_mood(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-    context.user_data["mood"] = update.message.text
+    mood, error_message = validate_mood(update.message.text)
+    if error_message:
+        await update.message.reply_text(error_message)
+        return MOOD
+
+    context.user_data["mood"] = mood
     await replace_flow_message(
         context,
         update.message.reply_text,
@@ -677,7 +704,14 @@ async def choose_mood(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def get_description(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     description_text = (update.message.text or "").strip()
-    context.user_data["description"] = "" if description_text.lower() == "skip" else description_text
+    if description_text.lower() == "skip":
+        context.user_data["description"] = ""
+    else:
+        description, error_message = validate_description(description_text)
+        if error_message:
+            await update.message.reply_text(error_message)
+            return DESCRIPTION
+        context.user_data["description"] = description
     await replace_flow_message(
         context,
         update.message.reply_text,
@@ -778,7 +812,11 @@ async def lyrics_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def edit_lyrics(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    lyrics = (update.message.text or "").strip()
+    lyrics, error_message = validate_lyrics(update.message.text)
+    if error_message:
+        await update.message.reply_text(error_message)
+        return EDIT_LYRICS
+
     context.user_data["lyrics"] = lyrics
 
     return await _send_lyrics_preview_and_actions(

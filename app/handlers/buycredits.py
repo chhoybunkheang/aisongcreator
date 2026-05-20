@@ -22,6 +22,7 @@ from app.config.settings import (
     PAYMENT_SCREENSHOT_AI_ENABLED,
 )
 from app.database.queries import (
+    create_payment_request,
     get_payment_qr_file_id,
     update_payment_qr_file_id,
 )
@@ -375,6 +376,15 @@ async def receive_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     photo = message.photo[-1]
 
     file_id = photo.file_id
+    file_unique_id = photo.file_unique_id
+
+    payment_request = create_payment_request(
+        telegram_id=telegram_id,
+        credits=credits,
+        payment_method=payment_method,
+        receipt_file_id=file_id,
+        receipt_file_unique_id=file_unique_id,
+    )
 
     try:
         ai_review = await _analyze_receipt_photo(photo, credits, payment_method)
@@ -406,11 +416,11 @@ async def receive_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [
                 InlineKeyboardButton(
                     "✅ Approve",
-                    callback_data=f"approve_{telegram_id}_{credits}"
+                    callback_data=f"approve_{payment_request.id}"
                 ),
                 InlineKeyboardButton(
                     "❌ Reject",
-                    callback_data=f"reject_{telegram_id}"
+                    callback_data=f"reject_{payment_request.id}"
                 )
             ]
         ])

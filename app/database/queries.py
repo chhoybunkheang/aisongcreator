@@ -1,9 +1,11 @@
 import json
 import os
+from datetime import datetime
 
 from app.database.db import SessionLocal
 from app.database.models import (
     AppSetting,
+    PaymentRequest,
     Song,
     User,
 )
@@ -495,6 +497,92 @@ def add_credits(telegram_id, credits):
     db.close()
 
     return True
+
+
+def create_payment_request(telegram_id, credits, payment_method, receipt_file_id, receipt_file_unique_id):
+
+    db = SessionLocal()
+
+    payment_request = PaymentRequest(
+        telegram_id=str(telegram_id),
+        credits=int(credits),
+        payment_method=str(payment_method),
+        receipt_file_id=str(receipt_file_id),
+        receipt_file_unique_id=str(receipt_file_unique_id),
+        status="pending",
+    )
+
+    db.add(payment_request)
+    db.commit()
+    db.refresh(payment_request)
+    db.close()
+
+    return payment_request
+
+
+def process_payment_request(payment_request_id, status):
+
+    normalized_status = str(status or "").strip().lower()
+    if normalized_status not in {"approved", "rejected"}:
+        return "invalid_status", None
+
+    db = SessionLocal()
+
+    payment_request = (
+        db.query(PaymentRequest)
+        .filter(PaymentRequest.id == int(payment_request_id))
+        .first()
+    )
+
+    if not payment_request:
+        db.close()
+        return "not_found", None
+
+    if payment_request.status != "pending":
+        current_status = payment_request.status
+        db.close()
+        return "already_processed", current_status
+
+    updated_rows = (
+        db.query(PaymentRequest)
+        .filter(PaymentRequest.id == payment_request.id, PaymentRequest.status == "pending")
+        .update(
+            {
+                PaymentRequest.status: normalized_status,
+                PaymentRequest.processed_at: datetime.utcnow(),
+            },
+            synchronize_session=False,
+        )
+    )
+
+    if updated_rows != 1:
+        db.rollback()
+        db.close()
+        return "already_processed", None
+
+    if normalized_status == "approved":
+        user = (
+            db.query(User)
+            .filter(User.telegram_id == payment_request.telegram_id)
+            .first()
+        )
+        if not user:
+            db.rollback()
+            db.close()
+            return "user_not_found", None
+
+        user.credits += payment_request.credits
+
+    db.commit()
+
+    result = {
+        "telegram_id": payment_request.telegram_id,
+        "credits": payment_request.credits,
+        "payment_method": payment_request.payment_method,
+        "status": normalized_status,
+    }
+    db.close()
+    return "processed", result
 
 
 # -----------------------------------
