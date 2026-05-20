@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+BOT_USERNAME = os.getenv("BOT_USERNAME", "").strip().lstrip("@")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
 PAYMENT_QR_IMAGE = os.getenv("PAYMENT_QR_IMAGE", "")
@@ -16,3 +17,5 @@ PAYMENT_SCREENSHOT_AI_ENABLED = os.getenv("PAYMENT_SCREENSHOT_AI_ENABLED", "true
 	"yes",
 	"on",
 }
+
+BOT_USERNAME_LABEL = f"@{BOT_USERNAME}" if BOT_USERNAME else "AI Song Bot"

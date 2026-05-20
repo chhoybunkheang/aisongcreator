@@ -100,3 +100,37 @@ class PaymentRequest(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     processed_at = Column(DateTime, nullable=True)
+
+
+# -----------------------------------
+# REFERRAL INVITES TABLE
+# -----------------------------------
+class ReferralInvite(Base):
+
+    __tablename__ = "referral_invites"
+
+    id = Column(Integer, primary_key=True)
+
+    inviter_telegram_id = Column(String, nullable=False)
+
+    invited_telegram_id = Column(String, unique=True, nullable=False)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+# -----------------------------------
+# REFERRAL REWARDS TABLE
+# -----------------------------------
+class ReferralReward(Base):
+
+    __tablename__ = "referral_rewards"
+
+    id = Column(Integer, primary_key=True)
+
+    inviter_telegram_id = Column(String, nullable=False)
+
+    milestone = Column(Integer, nullable=False)
+
+    credits_awarded = Column(Integer, nullable=False, default=2)
+
+    created_at = Column(DateTime, default=datetime.utcnow)

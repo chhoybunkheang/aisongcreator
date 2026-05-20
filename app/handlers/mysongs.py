@@ -18,6 +18,7 @@ from telegram.ext import (
     filters,
 )
 
+from app.config.settings import BOT_USERNAME_LABEL
 from app.database.queries import (
     deduct_credit,
     get_song_by_id,
@@ -65,12 +66,12 @@ async def _safe_answer(query):
 
 
 def _mp3_caption(title):
-    return f"🎵 Title: {title}\nAI Generated Song"
+    return f"🎵 Title: {title}\nCreated by: {BOT_USERNAME_LABEL}"
 
 
 def _video_caption(title, subtitles_enabled=False):
-    suffix = " with subtitles" if subtitles_enabled else ""
-    return f"🎬 Title: {title}\nAI Music Video{suffix}"
+    suffix = " (with subtitles)" if subtitles_enabled else ""
+    return f"🎬 Title: {title}{suffix}\nCreated by: {BOT_USERNAME_LABEL}"
 
 
 def _language_flag(language):
@@ -1004,7 +1005,8 @@ async def watch_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
             write_timeout=300,
         )
 
-    if song.mp3_path and os.path.exists(song.mp3_path) and song.cover_path and os.path.exists(song.cover_path):
+    has_lyrics = bool((song.lyrics or "").strip())
+    if has_lyrics and song.mp3_path and os.path.exists(song.mp3_path) and song.cover_path and os.path.exists(song.cover_path):
         button_text = "Update Subtitles" if song.subtitle_timing else "Add Subtitle"
         await replace_flow_message(
             context,
@@ -1060,6 +1062,13 @@ async def add_subtitle_to_video(update: Update, context: ContextTypes.DEFAULT_TY
 
     if not song.cover_path or not os.path.exists(song.cover_path):
         await context.bot.send_message(chat_id=query.message.chat_id, text="Cover image not found.")
+        return
+
+    if not (song.lyrics or "").strip():
+        await context.bot.send_message(
+            chat_id=query.message.chat_id,
+            text="This video has no lyrics, so subtitles cannot be added."
+        )
         return
 
     if not user or user.credits <= 10:

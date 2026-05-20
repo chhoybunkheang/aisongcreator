@@ -13,6 +13,7 @@ from telegram.ext import (
     filters,
 )
 
+from app.config.settings import BOT_USERNAME_LABEL
 from app.database.queries import (
     deduct_credit,
     get_enabled_song_languages,
@@ -86,12 +87,12 @@ def _yes_no_keyboard():
 
 
 def _mp3_caption(title):
-    return f"🎵 Title: {title}\nAI Generated Song"
+    return f"🎵 Title: {title}\nCreated by: {BOT_USERNAME_LABEL}"
 
 
 def _video_caption(title, subtitles_enabled=False):
-    suffix = " with subtitles" if subtitles_enabled else ""
-    return f"🎬 Title: {title}\nAI Music Video{suffix}"
+    suffix = " (with subtitles)" if subtitles_enabled else ""
+    return f"🎬 Title: {title}{suffix}\nCreated by: {BOT_USERNAME_LABEL}"
 
 
 def _mp3_delivery_keyboard():
@@ -431,9 +432,9 @@ async def _safe_answer(query):
 
 def _entry_type_keyboard():
     rows = [
-        [InlineKeyboardButton("🎵 New Lyrics", callback_data="type_new")],
-        [InlineKeyboardButton("📝 My Lyrics", callback_data="type_mylyrics")],
-        [InlineKeyboardButton("📋 Past Lyric", callback_data="type_paste")],
+        [InlineKeyboardButton("🎵 New", callback_data="type_new")],
+        [InlineKeyboardButton("📝 Library", callback_data="type_mylyrics")],
+        [InlineKeyboardButton("📋 Paste Lyric", callback_data="type_paste")],
     ]
     return InlineKeyboardMarkup(rows)
 
@@ -516,7 +517,7 @@ async def choose_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not songs_with_lyrics:
         await query.edit_message_text(
             "You don't have any saved lyrics waiting for MP3 conversion yet. "
-            "Use New Lyrics or Past Lyric first."
+            "Use New or Paste Lyric first."
         )
         return ConversationHandler.END
 

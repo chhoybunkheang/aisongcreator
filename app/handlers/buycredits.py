@@ -1,5 +1,6 @@
 import asyncio
 from pathlib import Path
+from urllib.parse import quote
 
 from telegram import (
     InlineKeyboardButton,
@@ -24,6 +25,7 @@ from app.config.settings import (
 from app.database.queries import (
     create_payment_request,
     get_payment_qr_file_id,
+    get_referral_progress,
     update_payment_qr_file_id,
 )
 from app.services.openai_service import analyze_payment_screenshot
@@ -60,6 +62,78 @@ def _package_price(credits):
     }
 
     return price_map.get(credits, "$5")
+
+
+async def _referral_share_link(context, telegram_id):
+    bot_info = await context.bot.get_me()
+    username = (bot_info.username or "").strip()
+    if not username:
+        return ""
+
+    return f"https://t.me/{username}?start=ref_{telegram_id}"
+
+
+async def _free_credits_text(context, telegram_id):
+    progress = get_referral_progress(telegram_id)
+    share_link = await _referral_share_link(context, telegram_id)
+
+    lines = [
+        "🎁 Free 2 Credits",
+        "",
+        "Invite 5 new users.",
+        "Use the Share Link button below to invite new users.",
+        "Each invited user must open the bot and tap /start using your link.",
+        "Every 5 new users gives you 2 more credits.",
+        "",
+        f"Progress: {progress['current_cycle_count']}/{progress['invites_per_reward']} toward next reward",
+        f"Total invited users: {progress['invite_count']}",
+        f"Total free credits earned: {progress['total_reward_credits']}",
+    ]
+
+    if share_link:
+        lines.extend([
+            "",
+            "Referral link:",
+            share_link,
+        ])
+
+    return "\n".join(lines)
+
+
+def _free_credits_button_label(telegram_id):
+    progress = get_referral_progress(telegram_id)
+    return (
+        f"🎁 2 Credits - Free "
+        f"({progress['current_cycle_count']}/{progress['invites_per_reward']})"
+    )
+
+
+def _buy_credits_menu_markup(telegram_id):
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(_free_credits_button_label(telegram_id), callback_data="freecredits_info")],
+        [InlineKeyboardButton("10 Credits - $1", callback_data="buy_10")],
+        [InlineKeyboardButton("50 Credits - $3", callback_data="buy_50")],
+        [InlineKeyboardButton("100 Credits - $5", callback_data="buy_100")],
+    ])
+
+
+async def _free_credits_markup(context, telegram_id):
+    share_link = await _referral_share_link(context, telegram_id)
+    rows = []
+
+    if share_link:
+        share_text = (
+            "Try this AI Song Bot I'm using. Open the bot and tap Start with this link. "
+            "I earn referral credits when new users join through it."
+        )
+        share_url = (
+            "https://t.me/share/url?"
+            f"url={quote(share_link, safe='')}&text={quote(share_text, safe='')}"
+        )
+        rows.append([InlineKeyboardButton("📤 Share Link", url=share_url)])
+
+    rows.append([InlineKeyboardButton("⬅️ Back", callback_data="buycredits_menu")])
+    return InlineKeyboardMarkup(rows)
 
 
 def _format_ai_review(review):
@@ -199,31 +273,7 @@ async def buy_credits(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_data.pop("buy_credits", None)
         user_data.pop("buy_credits_method", None)
 
-    keyboard = [
-
-        [
-            InlineKeyboardButton(
-                "10 Credits - $1",
-                callback_data="buy_10"
-            )
-        ],
-
-        [
-            InlineKeyboardButton(
-                "50 Credits - $3",
-                callback_data="buy_50"
-            )
-        ],
-
-        [
-            InlineKeyboardButton(
-                "100 Credits - $5",
-                callback_data="buy_100"
-            )
-        ],
-    ]
-
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    reply_markup = _buy_credits_menu_markup(update.effective_user.id)
 
     await replace_flow_message(
         context,
@@ -256,13 +306,27 @@ async def payment_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if query_data == "buycredits_menu":
         await query.answer()
-        await query.edit_message_text(
-            "💎 Buy Credits\n\nChoose a package:",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("10 Credits - $1", callback_data="buy_10")],
-                [InlineKeyboardButton("50 Credits - $3", callback_data="buy_50")],
-                [InlineKeyboardButton("100 Credits - $5", callback_data="buy_100")],
-            ]),
+        await replace_flow_message(
+            context,
+            context.bot.send_message,
+            chat_id=query.message.chat_id,
+            text="💎 Buy Credits\n\nChoose a package:",
+            reply_markup=_buy_credits_menu_markup(query.from_user.id),
+            state_key="buycredits_flow_message_id",
+        )
+        return
+
+    if query_data == "freecredits_info":
+        await query.answer()
+        caption = await _free_credits_text(context, query.from_user.id)
+        reply_markup = await _free_credits_markup(context, query.from_user.id)
+        await replace_flow_message(
+            context,
+            context.bot.send_message,
+            chat_id=query.message.chat_id,
+            text=caption,
+            reply_markup=reply_markup,
+            state_key="buycredits_flow_message_id",
         )
         return
 
@@ -444,7 +508,7 @@ buycredits_handler = MessageHandler(
 
 payment_handler = CallbackQueryHandler(
     payment_info,
-    pattern=r"^(buy_|payment_|buycredits_menu$)"
+    pattern=r"^(buy_|payment_|buycredits_menu$|freecredits_info$)"
 )
 receipt_handler = MessageHandler(
     filters.PHOTO,
