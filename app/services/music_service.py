@@ -9,6 +9,8 @@ import requests
 from dotenv import load_dotenv
 from moviepy import AudioFileClip, CompositeAudioClip
 
+from app.config.settings import GENERATED_SONGS_DIR
+
 load_dotenv()
 
 API_KEY: str = os.getenv("SUNO_API_KEY", "").strip()
@@ -133,8 +135,8 @@ def _generate_khmer_mp3(lyrics, singer_gender="female"):
     if not cleaned_lyrics:
         raise Exception("Khmer lyrics are empty after cleanup")
 
-    os.makedirs("media/generated/songs", exist_ok=True)
-    mp3_path = f"media/generated/songs/{uuid.uuid4()}.mp3"
+    os.makedirs(GENERATED_SONGS_DIR, exist_ok=True)
+    mp3_path = os.path.join(GENERATED_SONGS_DIR, f"{uuid.uuid4()}.mp3")
     asyncio.run(_save_edge_tts_mp3(cleaned_lyrics, mp3_path, singer_gender=singer_gender))
     print("[SUCCESS] Khmer MP3 saved:", mp3_path)
     return mp3_path
@@ -160,8 +162,8 @@ def _extract_audio_url(output):
 
 
 def _download_audio_file(audio_url, file_stem, progress_callback=None):
-    os.makedirs("media/generated/songs", exist_ok=True)
-    mp3_path = f"media/generated/songs/{file_stem}.mp3"
+    os.makedirs(GENERATED_SONGS_DIR, exist_ok=True)
+    mp3_path = os.path.join(GENERATED_SONGS_DIR, f"{file_stem}.mp3")
 
     print("\n========== DOWNLOAD MP3 ==========")
     if progress_callback:
@@ -379,7 +381,8 @@ def _generate_khmer_instrumental(style, mood, progress_callback=None):
 
 
 def _mix_voice_with_music(voice_path, music_path):
-    mixed_path = f"media/generated/songs/{uuid.uuid4()}.mp3"
+    os.makedirs(GENERATED_SONGS_DIR, exist_ok=True)
+    mixed_path = os.path.join(GENERATED_SONGS_DIR, f"{uuid.uuid4()}.mp3")
     voice_clip = AudioFileClip(voice_path)
     music_clip = AudioFileClip(music_path)
 

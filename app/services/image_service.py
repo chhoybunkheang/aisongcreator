@@ -6,7 +6,7 @@ import httpx
 from openai import OpenAI
 from PIL import Image
 
-from app.config.settings import OPENAI_API_KEY
+from app.config.settings import GENERATED_COVERS_DIR, OPENAI_API_KEY
 
 # -----------------------------------
 # OPENAI CLIENT
@@ -26,9 +26,9 @@ _COVER_QUALITY = 86
 
 
 def _save_optimized_cover(image_data):
-    os.makedirs("media/generated/covers", exist_ok=True)
+    os.makedirs(GENERATED_COVERS_DIR, exist_ok=True)
     filename = f"{uuid.uuid4()}.jpg"
-    filepath = os.path.join("media/generated/covers", filename)
+    filepath = os.path.join(GENERATED_COVERS_DIR, filename)
 
     with Image.open(io.BytesIO(image_data)) as image:
         optimized = image.convert("RGB")

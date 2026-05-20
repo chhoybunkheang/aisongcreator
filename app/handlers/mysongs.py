@@ -18,7 +18,11 @@ from telegram.ext import (
     filters,
 )
 
-from app.config.settings import BOT_USERNAME_LABEL
+from app.config.settings import (
+    BOT_USERNAME_LABEL,
+    GENERATED_COVERS_DIR,
+    GENERATED_VIDEOS_DIR,
+)
 from app.database.queries import (
     deduct_credit,
     get_song_by_id,
@@ -561,8 +565,8 @@ async def ms_gen_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         safe_topic = "_".join(song.topic.split())
-        video_path = f"media/generated/videos/{song_id}_{safe_topic}.mp4"
-        os.makedirs("media/generated/videos", exist_ok=True)
+        os.makedirs(GENERATED_VIDEOS_DIR, exist_ok=True)
+        video_path = os.path.join(GENERATED_VIDEOS_DIR, f"{song_id}_{safe_topic}.mp4")
         subtitle_timing = None
         if subtitles_enabled and song.lyrics and song.mp3_path:
             try:
@@ -861,11 +865,9 @@ async def ms_receive_uploaded_cover(update: Update, context: ContextTypes.DEFAUL
     photo = update.message.photo[-1]
     telegram_file = await context.bot.get_file(photo.file_id)
 
-    os.makedirs("media/generated/covers", exist_ok=True)
+    os.makedirs(GENERATED_COVERS_DIR, exist_ok=True)
     cover_path = os.path.join(
-        "media",
-        "generated",
-        "covers",
+        GENERATED_COVERS_DIR,
         f"upload_{update.effective_user.id}_{uuid.uuid4().hex}.jpg"
     )
     await telegram_file.download_to_drive(cover_path)
@@ -1118,8 +1120,8 @@ async def add_subtitle_to_video(update: Update, context: ContextTypes.DEFAULT_TY
                 update_song_subtitle_timing(song_id, subtitle_timing)
 
         safe_topic = "_".join(song.topic.split())
-        video_path = f"media/generated/videos/{song_id}_{safe_topic}.mp4"
-        os.makedirs("media/generated/videos", exist_ok=True)
+        os.makedirs(GENERATED_VIDEOS_DIR, exist_ok=True)
+        video_path = os.path.join(GENERATED_VIDEOS_DIR, f"{song_id}_{safe_topic}.mp4")
 
         await asyncio.to_thread(
             create_music_video,

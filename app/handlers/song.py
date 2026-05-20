@@ -13,7 +13,11 @@ from telegram.ext import (
     filters,
 )
 
-from app.config.settings import BOT_USERNAME_LABEL
+from app.config.settings import (
+    BOT_USERNAME_LABEL,
+    GENERATED_COVERS_DIR,
+    GENERATED_VIDEOS_DIR,
+)
 from app.database.queries import (
     deduct_credit,
     get_enabled_song_languages,
@@ -1121,11 +1125,9 @@ async def receive_uploaded_cover(update: Update, context: ContextTypes.DEFAULT_T
     photo = update.message.photo[-1]
     telegram_file = await context.bot.get_file(photo.file_id)
 
-    os.makedirs("media/generated/covers", exist_ok=True)
+    os.makedirs(GENERATED_COVERS_DIR, exist_ok=True)
     cover_path = os.path.join(
-        "media",
-        "generated",
-        "covers",
+        GENERATED_COVERS_DIR,
         f"upload_{update.effective_user.id}_{uuid.uuid4().hex}.jpg"
     )
     await telegram_file.download_to_drive(cover_path)
@@ -1272,8 +1274,8 @@ async def confirm_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         safe_topic = "_".join(topic.split())
-        video_path = f"media/generated/videos/{query.from_user.id}_{safe_topic}.mp4"
-        os.makedirs("media/generated/videos", exist_ok=True)
+        os.makedirs(GENERATED_VIDEOS_DIR, exist_ok=True)
+        video_path = os.path.join(GENERATED_VIDEOS_DIR, f"{query.from_user.id}_{safe_topic}.mp4")
 
         await asyncio.to_thread(
             create_music_video,

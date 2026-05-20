@@ -37,14 +37,18 @@ REQUIRED_MODULES = [
 def verify_runtime_environment():
     print(f"[INFO] Python executable: {sys.executable}")
 
-    expected_venv = os.path.join(".venv", "Scripts", "python.exe")
-    normalized_executable = sys.executable.lower().replace("\\", "/")
-    normalized_expected = expected_venv.lower().replace("\\", "/")
+    expected_venv = os.path.join(
+        ".venv",
+        "Scripts" if os.name == "nt" else "bin",
+        "python.exe" if os.name == "nt" else "python",
+    )
+    normalized_executable = os.path.abspath(sys.executable).lower().replace("\\", "/")
+    normalized_expected = os.path.abspath(expected_venv).lower().replace("\\", "/")
 
-    if normalized_expected not in normalized_executable:
+    if os.path.exists(expected_venv) and normalized_expected not in normalized_executable:
         print("[WARN] You are not using the project virtual environment.")
         print("[WARN] Recommended command:")
-        print('[WARN] & "d:/Bot Project/ai-song-bot/.venv/Scripts/python.exe" "run.py"')
+        print(f'[WARN] "{expected_venv}" "run.py"')
 
     missing = []
     for module_name, package_name in REQUIRED_MODULES:
@@ -57,9 +61,7 @@ def verify_runtime_environment():
         unique_missing = sorted(set(missing), key=str.lower)
         print("[ERROR] Missing required packages:", ", ".join(unique_missing))
         print("[ERROR] Install them with:")
-        print(
-            '[ERROR] & "d:/Bot Project/ai-song-bot/.venv/Scripts/python.exe" -m pip install -r "requirements.txt"'
-        )
+        print(f'[ERROR] "{expected_venv}" -m pip install -r "requirements.txt"')
         return False
 
     return True
