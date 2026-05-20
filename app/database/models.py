@@ -25,7 +25,7 @@ class User(Base):
 
     name = Column(String)
 
-    credits = Column(Integer, default=3)
+    credits = Column(Integer, default=1)
 
     created_at = Column(DateTime, default=datetime.utcnow)
 
