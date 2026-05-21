@@ -1245,10 +1245,15 @@ async def confirm_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     subtitles_enabled = query.data == "yes"
     if subtitles_enabled and (not user or user.credits <= 10):
+        from app.handlers.buycredits import _buy_credits_menu_markup
+        # Add a back button to let user generate video without subtitles or stop
+        markup = _buy_credits_menu_markup(query.from_user.id)
+        # Add back button row
+        markup.inline_keyboard.append([InlineKeyboardButton("⬅️ Back (No Subtitles)", callback_data="no")])
         await query.edit_message_text(
-            "❌ You need more than 10 credits to create a video with subtitles.\n\n"
-            "💎 Please add credit or choose video without subtitles.",
-            reply_markup=_yes_no_keyboard()
+            "❌ You don't have enough credits to create a video with subtitles.\n\n"
+            "Please add credits to continue, or go back to generate video without subtitles.",
+            reply_markup=markup
         )
         return CONFIRM_VIDEO
 
