@@ -160,7 +160,9 @@ def _settings_payment_package_keyboard(package_credits, has_qr):
 
 def _deletable_items(telegram_id, item_type):
     songs = get_user_songs(telegram_id)
-    print(f"[DEBUG] _deletable_items: item_type={item_type}, songs={songs}")
+    print(f"[DEBUG] _deletable_items: item_type={item_type}, total_songs={len(songs)}")
+    for song in songs:
+        print(f"[DEBUG] Song ID: {getattr(song, 'id', None)}, video_path: {getattr(song, 'video_path', None)}, mp3_path: {getattr(song, 'mp3_path', None)}, lyrics: {bool(getattr(song, 'lyrics', None))}")
 
     if item_type == "lyrics":
         items = [song for song in songs if song.lyrics]
