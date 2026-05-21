@@ -188,6 +188,8 @@ async def settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def settings_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     print("[DEBUG] settings_action handler triggered")
+    if update.callback_query:
+        print(f"[DEBUG] callback_data: {update.callback_query.data}")
     query = update.callback_query
     if query is not None:
         await query.answer()
