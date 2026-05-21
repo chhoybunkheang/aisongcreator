@@ -187,6 +187,7 @@ async def settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def settings_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
+    print("[DEBUG] settings_action handler triggered")
     query = update.callback_query
     if query is not None:
         await query.answer()
