@@ -498,9 +498,12 @@ async def create_song(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
 
     if user.credits <= 0:
+        from app.handlers.buycredits import _buy_credits_menu_markup
         await message.reply_text(
             "❌ You don't have enough credits.\n\n"
-            "💎 Please buy more credits."
+            "Please add credits to continue.\n\n"
+            "Choose a package below:",
+            reply_markup=_buy_credits_menu_markup(telegram_id)
         )
         return ConversationHandler.END
 
