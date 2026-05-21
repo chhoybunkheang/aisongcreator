@@ -400,22 +400,31 @@ async def settings_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if query.data in {"settings_delete_lyrics", "settings_delete_mp3", "settings_delete_mp4"}:
-        item_type = query.data.replace("settings_delete_", "")
-        items = _deletable_items(telegram_id, item_type)
-        print(f"[DEBUG] settings_action: delete {item_type}, items={items}")
+        try:
+            item_type = query.data.replace("settings_delete_", "")
+            items = _deletable_items(telegram_id, item_type)
+            print(f"[DEBUG] settings_action: delete {item_type}, items={items}")
 
-        if not items:
+            if not items:
+                await query.edit_message_text(
+                    f"No {item_type.upper()} items found.",
+                    reply_markup=_settings_delete_keyboard()
+                )
+                return
+
             await query.edit_message_text(
-                f"No {item_type.upper()} items found.",
+                f"Select one {item_type.upper()} item to delete:",
+                reply_markup=_settings_delete_list_keyboard(items, item_type)
+            )
+            return
+        except Exception as e:
+            import traceback
+            print(f"[ERROR] Exception in delete item logic: {e}\n{traceback.format_exc()}")
+            await query.edit_message_text(
+                f"❌ An error occurred while loading your {query.data.replace('settings_delete_', '').upper()} items. Please contact support.",
                 reply_markup=_settings_delete_keyboard()
             )
             return
-
-        await query.edit_message_text(
-            f"Select one {item_type.upper()} item to delete:",
-            reply_markup=_settings_delete_list_keyboard(items, item_type)
-        )
-        return
 
     if query.data.startswith("settings_delete_item_"):
         _, _, _, item_type, song_id = query.data.split("_", 4)
