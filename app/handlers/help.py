@@ -160,15 +160,18 @@ def _settings_payment_package_keyboard(package_credits, has_qr):
 
 def _deletable_items(telegram_id, item_type):
     songs = get_user_songs(telegram_id)
+    print(f"[DEBUG] _deletable_items: item_type={item_type}, songs={songs}")
 
     if item_type == "lyrics":
-        return [song for song in songs if song.lyrics]
-    if item_type == "mp3":
-        return [song for song in songs if song.mp3_path]
-    if item_type == "mp4":
-        return [song for song in songs if song.video_path]
-
-    return []
+        items = [song for song in songs if song.lyrics]
+    elif item_type == "mp3":
+        items = [song for song in songs if song.mp3_path]
+    elif item_type == "mp4":
+        items = [song for song in songs if song.video_path]
+    else:
+        items = []
+    print(f"[DEBUG] _deletable_items: found {len(items)} items for type {item_type}")
+    return items
 
 
 async def settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -396,6 +399,7 @@ async def settings_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if query.data in {"settings_delete_lyrics", "settings_delete_mp3", "settings_delete_mp4"}:
         item_type = query.data.replace("settings_delete_", "")
         items = _deletable_items(telegram_id, item_type)
+        print(f"[DEBUG] settings_action: delete {item_type}, items={items}")
 
         if not items:
             await query.edit_message_text(
