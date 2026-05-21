@@ -1,3 +1,7 @@
+settings_text_handler = MessageHandler(
+    filters.TEXT & ~filters.COMMAND,
+    settings_action
+)
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import CallbackQueryHandler, ContextTypes, MessageHandler, filters
 

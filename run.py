@@ -168,6 +168,8 @@ def main():
     app.add_handler(mymp4_handler)
     app.add_handler(settings_handler)
     app.add_handler(settings_action_handler)
+    from app.handlers.help import settings_text_handler
+    app.add_handler(settings_text_handler)
     app.add_handler(song_detail_handler)
     app.add_handler(lyrics_detail_handler)
     app.add_handler(ms_mp3_handler)
