@@ -220,12 +220,23 @@ async def settings_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if query.data == "settings_info":
         user = get_user(telegram_id)
-        await query.edit_message_text(
-            _settings_info_text(user, query.from_user),
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("⬅️ Back", callback_data="settings_back")],
-            ])
-        )
+        try:
+            await query.edit_message_text(
+                _settings_info_text(user, query.from_user),
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("⬅️ Back", callback_data="settings_back")],
+                ])
+            )
+        except Exception as e:
+            # Log the error and send a new message as fallback
+            print(f"[settings_info] edit_message_text failed: {e}")
+            await context.bot.send_message(
+                chat_id=query.message.chat_id,
+                text=_settings_info_text(user, query.from_user),
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("⬅️ Back", callback_data="settings_back")],
+                ])
+            )
         return
 
     if query.data == "settings_delete":
