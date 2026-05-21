@@ -1395,7 +1395,8 @@ song_handler = ConversationHandler(
         MessageHandler(
             filters.TEXT & filters.Regex(r"^🎵 Create Song$"),
             create_song
-        )
+        ),
+        CallbackQueryHandler(create_song, pattern=r"^create_song$"),
     ],
     states={
         CHOOSE_TYPE: [
