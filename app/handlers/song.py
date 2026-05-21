@@ -49,6 +49,7 @@ from app.services.music_service import (
 )
 from app.services.openai_service import generate_lyrics, generate_subtitle_timing
 from app.services.video_service import create_music_video
+from app.handlers.buycredits import payment_info
 from app.states.song_states import (
     BUY_CREDITS,
     CHOOSE_COVER,
