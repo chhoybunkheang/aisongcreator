@@ -1407,12 +1407,8 @@ song_handler = ConversationHandler(
             CallbackQueryHandler(choose_song_type, pattern=r"^stype_"),
             CallbackQueryHandler(cancel_flow_handler, pattern=r"^cancel_flow$")
         ],
-        CUSTOM_SONG_TYPE: [
-            MessageHandler(filters.TEXT & ~filters.COMMAND, get_custom_song_type),
-            CallbackQueryHandler(cancel_flow_handler, pattern=r"^cancel_flow$")
-        ],
-        PASTE_LYRICS: [
-            MessageHandler(filters.TEXT & ~filters.COMMAND, get_pasted_lyrics),
+        LANGUAGE: [
+            CallbackQueryHandler(get_language, pattern=r"^lang_"),
             CallbackQueryHandler(cancel_flow_handler, pattern=r"^cancel_flow$")
         ],
         MUSIC_STYLE: [
@@ -1434,8 +1430,12 @@ song_handler = ConversationHandler(
             CallbackQueryHandler(skip_description, pattern=r"^desc_skip$"),
             CallbackQueryHandler(cancel_flow_handler, pattern=r"^cancel_flow$")
         ],
-        LANGUAGE: [
-            CallbackQueryHandler(get_language, pattern=r"^lang_"),
+        CUSTOM_SONG_TYPE: [
+            MessageHandler(filters.TEXT & ~filters.COMMAND, get_custom_song_type),
+            CallbackQueryHandler(cancel_flow_handler, pattern=r"^cancel_flow$")
+        ],
+        PASTE_LYRICS: [
+            MessageHandler(filters.TEXT & ~filters.COMMAND, get_pasted_lyrics),
             CallbackQueryHandler(cancel_flow_handler, pattern=r"^cancel_flow$")
         ],
         SINGER: [
