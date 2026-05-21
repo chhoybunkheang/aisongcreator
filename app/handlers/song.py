@@ -50,6 +50,7 @@ from app.services.music_service import (
 from app.services.openai_service import generate_lyrics, generate_subtitle_timing
 from app.services.video_service import create_music_video
 from app.states.song_states import (
+    BUY_CREDITS,
     CHOOSE_COVER,
     CHOOSE_TYPE,
     CONFIRM_COVER,
@@ -1266,7 +1267,7 @@ async def confirm_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "💎 Please add credits or create the video without subtitles.",
             reply_markup=_buy_credits_menu_markup(query.from_user.id)
         )
-        return ConversationHandler.END
+        return BUY_CREDITS
 
     context.user_data.pop("video_subtitle_prompt_pending", None)
 
@@ -1466,6 +1467,13 @@ song_handler = ConversationHandler(
         CONFIRM_VIDEO: [
             CallbackQueryHandler(confirm_video),
             CallbackQueryHandler(cancel_flow_handler, pattern=r"^cancel_flow$")
+        ],
+        BUY_CREDITS: [
+            CallbackQueryHandler(confirm_video, pattern=r"^cancel_flow$|^no$"),
+            CallbackQueryHandler(
+                payment_info,
+                pattern=r"^(buy_|payment_|buycredits_menu$|freecredits_info$)"
+            ),
         ],
     },
     fallbacks=[CallbackQueryHandler(cancel_flow_handler, pattern=r"^cancel_flow$")]
