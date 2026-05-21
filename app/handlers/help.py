@@ -177,6 +177,13 @@ async def settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def settings_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    query = update.callback_query
+    await query.answer()
+
+    telegram_id = query.from_user.id
+    is_admin = telegram_id == ADMIN_ID
+
     # Admin credit status and set prompt
     if is_admin and query.data == "settings_credit_status":
         from app.database.queries import get_user
@@ -202,11 +209,6 @@ async def settings_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Please enter a valid number.")
         context.user_data.pop("settings_waiting_for_credit_amount", None)
         return
-    query = update.callback_query
-    await query.answer()
-
-    telegram_id = query.from_user.id
-    is_admin = telegram_id == ADMIN_ID
 
     if query.data == "settings_back":
         context.user_data.pop("payment_qr_package", None)
