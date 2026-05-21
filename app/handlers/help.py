@@ -4,17 +4,8 @@ from telegram.ext import CallbackQueryHandler, ContextTypes, MessageHandler, fil
 
 # Place this after all imports and function/class definitions
 # ...existing code...
-
-
 # ...existing code...
-
 # Place this after all function/class definitions
-
-settings_text_handler = MessageHandler(
-    filters.TEXT & ~filters.COMMAND,
-    settings_action
-)
-
 from app.config.settings import ADMIN_ID
 from app.database.queries import (
     DEFAULT_SONG_LANGUAGES,
@@ -449,4 +440,11 @@ settings_handler = MessageHandler(
 )
 
 
+
 settings_action_handler = CallbackQueryHandler(settings_action, pattern=r"^settings_")
+
+# Place this after all function/class definitions
+settings_text_handler = MessageHandler(
+    filters.TEXT & ~filters.COMMAND,
+    settings_action
+)
