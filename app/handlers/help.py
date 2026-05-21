@@ -9,6 +9,7 @@ from telegram.ext import CallbackQueryHandler, ContextTypes, MessageHandler, fil
 # ...existing code...
 
 # Place this after all function/class definitions
+
 settings_text_handler = MessageHandler(
     filters.TEXT & ~filters.COMMAND,
     settings_action
