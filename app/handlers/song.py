@@ -1262,8 +1262,8 @@ async def confirm_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if subtitles_enabled and (not user or user.credits <= 10):
         from app.handlers.buycredits import _buy_credits_menu_markup
         await query.edit_message_text(
-            "❌ You don't have enough credits to create a video with subtitles.\n\n"
-            "Please add credits to continue.",
+            "❌ You need more than 10 credits to create a video with subtitles.\n\n"
+            "💎 Please add credits or create the video without subtitles.",
             reply_markup=_buy_credits_menu_markup(query.from_user.id)
         )
         return ConversationHandler.END
