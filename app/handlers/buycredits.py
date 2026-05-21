@@ -114,6 +114,7 @@ def _buy_credits_menu_markup(telegram_id):
         [InlineKeyboardButton("10 Credits - $1", callback_data="buy_10")],
         [InlineKeyboardButton("50 Credits - $3", callback_data="buy_50")],
         [InlineKeyboardButton("100 Credits - $5", callback_data="buy_100")],
+        [InlineKeyboardButton("💎 Add Credits", callback_data="buycredits_menu")],
     ])
 
 

@@ -1081,7 +1081,7 @@ async def add_subtitle_to_video(update: Update, context: ContextTypes.DEFAULT_TY
                 "💎 Please add credit."
             ),
             reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("💎 Buy Credits", callback_data="buycredits_menu"),
+                InlineKeyboardButton("💎 Add Credits", callback_data="buycredits_menu"),
                 InlineKeyboardButton("⬅️ Back", callback_data=f"watchvid_{song.id}"),
             ]]),
         )

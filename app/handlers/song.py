@@ -116,7 +116,7 @@ def _mp3_delivery_keyboard():
 
 def _unlock_full_song_keyboard():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("💎 Buy Credits", callback_data="buycredits_menu")],
+        [InlineKeyboardButton("💎 Add Credits", callback_data="buycredits_menu")],
     ])
 
 
@@ -1188,10 +1188,12 @@ async def confirm_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not context.user_data.get("video_animation_prompt_pending") and not context.user_data.get("video_animation_style_prompt_pending") and not context.user_data.get("video_subtitle_prompt_pending"):
         if query.data == "no":
-            await query.edit_message_text(
-                f"✅ All done!\n\n"
-                f"💎 Remaining Credits: {user.credits}"
-            )
+            # Remove the current message and show previous button (do not reply video again)
+            try:
+                await query.delete_message()
+            except Exception:
+                pass
+            # Optionally, you can re-show the previous animation style or subtitle prompt if needed
             return ConversationHandler.END
 
         context.user_data["video_animation_prompt_pending"] = True
