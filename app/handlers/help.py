@@ -184,9 +184,9 @@ async def settings_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     telegram_id = query.from_user.id
     is_admin = telegram_id == ADMIN_ID
 
+
     # Admin credit status and set prompt
     if is_admin and query.data == "settings_credit_status":
-        from app.database.queries import get_user
         admin_user = get_user(ADMIN_ID)
         current_credits = admin_user.credits if admin_user else 0
         await query.edit_message_text(
@@ -202,7 +202,6 @@ async def settings_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_admin and context.user_data.get("settings_waiting_for_credit_amount") and update.message:
         try:
             amount = int(update.message.text.strip())
-            from app.database.queries import set_credits
             set_credits(ADMIN_ID, amount)
             await update.message.reply_text(f"✅ Admin credits set to {amount}.")
         except Exception:
