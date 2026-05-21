@@ -1,3 +1,17 @@
+def set_credits(telegram_id, credits):
+    db = SessionLocal()
+    user = (
+        db.query(User)
+        .filter(User.telegram_id == str(telegram_id))
+        .first()
+    )
+    if not user:
+        db.close()
+        return False
+    user.credits = credits
+    db.commit()
+    db.close()
+    return True
 import json
 import os
 from datetime import datetime

@@ -42,6 +42,9 @@ def _settings_menu_keyboard_for_user(is_admin):
     ]
 
     if is_admin:
+        rows.append([
+            InlineKeyboardButton("💎 Credit Status", callback_data="settings_credit_status")
+        ])
         rows.append([InlineKeyboardButton("🌍 Languages", callback_data="settings_languages")])
         rows.append([InlineKeyboardButton("📷 QR Payment", callback_data="settings_payment")])
 
@@ -174,6 +177,32 @@ async def settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def settings_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        # Admin credit status and set prompt
+        if is_admin and query.data == "settings_credit_status":
+            from app.database.queries import get_user
+            admin_user = get_user(ADMIN_ID)
+            current_credits = admin_user.credits if admin_user else 0
+            await query.edit_message_text(
+                f"💎 Admin Credit Status\n\nCurrent credits: {current_credits}\n\nEnter a new credit amount to set:",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("⬅️ Back", callback_data="settings_back")]
+                ])
+            )
+            context.user_data["settings_waiting_for_credit_amount"] = True
+            return
+    from app.database.queries import add_credits, deduct_credit
+    from telegram.ext import ConversationHandler
+        # Handle admin entering new credit amount
+        if is_admin and context.user_data.get("settings_waiting_for_credit_amount") and update.message:
+            try:
+                amount = int(update.message.text.strip())
+                from app.database.queries import get_user, set_credits
+                set_credits(ADMIN_ID, amount)
+                await update.message.reply_text(f"✅ Admin credits set to {amount}.")
+            except Exception:
+                await update.message.reply_text("❌ Please enter a valid number.")
+            context.user_data.pop("settings_waiting_for_credit_amount", None)
+            return
     query = update.callback_query
     await query.answer()
 
