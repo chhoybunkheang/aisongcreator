@@ -203,8 +203,64 @@ async def settings_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         # ...existing code for other query.data cases...
+        if query.data == "settings_back":
+            context.user_data.pop("payment_qr_package", None)
+            await query.edit_message_text(
+                "⚙️ Settings\n\nChoose an option:",
+                reply_markup=_settings_menu_keyboard_for_user(is_admin)
+            )
+            return
 
-        # (Keep all the rest of the query.data handling code unchanged)
+        if query.data == "settings_info":
+            # get_user is imported at the top
+            user = get_user(telegram_id)
+            try:
+                await query.edit_message_text(
+                    _settings_info_text(user, query.from_user),
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("⬅️ Back", callback_data="settings_back")],
+                    ])
+                )
+            except Exception as e:
+                # Log the error and send a new message as fallback
+                print(f"[settings_info] edit_message_text failed: {e}")
+                await context.bot.send_message(
+                    chat_id=query.message.chat_id,
+                    text=_settings_info_text(user, query.from_user),
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("⬅️ Back", callback_data="settings_back")],
+                    ])
+                )
+            return
+
+        if query.data == "settings_delete":
+            await query.edit_message_text(
+                "🗑 Delete\n\nChoose what you want to delete:",
+                reply_markup=_settings_delete_keyboard()
+            )
+            return
+
+        if query.data == "settings_reset":
+            await query.edit_message_text(
+                "♻️ Reset\n\nThis will delete all your lyrics, MP3, and MP4 data.",
+                reply_markup=_settings_reset_keyboard()
+            )
+            return
+
+        if query.data == "settings_languages":
+            if not is_admin:
+                await query.answer("Admin only.", show_alert=True)
+                return
+
+            enabled_languages = get_enabled_song_languages()
+            await query.edit_message_text(
+                "🌍 Visible Song Languages\n\nChoose which languages users can see in Create Song:",
+                reply_markup=_settings_language_keyboard(enabled_languages)
+            )
+            return
+        # ...continue with all other query.data cases, all inside this block...
+        # (rest of the function unchanged)
+        return
 
     # Handle admin entering new credit amount (text message case)
     elif (
@@ -213,69 +269,16 @@ async def settings_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
         update.effective_user.id == ADMIN_ID and
         context.user_data.get("settings_waiting_for_credit_amount")
     ):
-        try:
-            amount = int(update.message.text.strip())
+        # Debug logging
+        print(f"[DEBUG] Received credit input: '{update.message.text}' user_data: {context.user_data}")
+        text = update.message.text.strip()
+        if text.isdigit():
+            amount = int(text)
             set_credits(ADMIN_ID, amount)
             await update.message.reply_text(f"✅ Admin credits set to {amount}.")
-        except Exception:
-            await update.message.reply_text("❌ Please enter a valid number.")
-        context.user_data.pop("settings_waiting_for_credit_amount", None)
-        return
-
-    if query.data == "settings_back":
-        context.user_data.pop("payment_qr_package", None)
-        await query.edit_message_text(
-            "⚙️ Settings\n\nChoose an option:",
-            reply_markup=_settings_menu_keyboard_for_user(is_admin)
-        )
-        return
-
-    if query.data == "settings_info":
-        # get_user is imported at the top
-        user = get_user(telegram_id)
-        try:
-            await query.edit_message_text(
-                _settings_info_text(user, query.from_user),
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("⬅️ Back", callback_data="settings_back")],
-                ])
-            )
-        except Exception as e:
-            # Log the error and send a new message as fallback
-            print(f"[settings_info] edit_message_text failed: {e}")
-            await context.bot.send_message(
-                chat_id=query.message.chat_id,
-                text=_settings_info_text(user, query.from_user),
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("⬅️ Back", callback_data="settings_back")],
-                ])
-            )
-        return
-
-    if query.data == "settings_delete":
-        await query.edit_message_text(
-            "🗑 Delete\n\nChoose what you want to delete:",
-            reply_markup=_settings_delete_keyboard()
-        )
-        return
-
-    if query.data == "settings_reset":
-        await query.edit_message_text(
-            "♻️ Reset\n\nThis will delete all your lyrics, MP3, and MP4 data.",
-            reply_markup=_settings_reset_keyboard()
-        )
-        return
-
-    if query.data == "settings_languages":
-        if not is_admin:
-            await query.answer("Admin only.", show_alert=True)
-            return
-
-        enabled_languages = get_enabled_song_languages()
-        await query.edit_message_text(
-            "🌍 Visible Song Languages\n\nChoose which languages users can see in Create Song:",
-            reply_markup=_settings_language_keyboard(enabled_languages)
-        )
+            context.user_data.pop("settings_waiting_for_credit_amount", None)
+        else:
+            await update.message.reply_text("❌ Please enter a valid number (digits only). Try again:")
         return
 
     if query.data == "settings_payment":
