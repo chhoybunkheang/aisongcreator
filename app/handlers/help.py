@@ -21,6 +21,7 @@ from app.database.queries import (
     get_user,
     get_user_songs,
     reset_user_song_data,
+    set_credits,
     update_enabled_song_languages,
 )
 from app.utils.helpers import replace_flow_message
