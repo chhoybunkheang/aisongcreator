@@ -219,6 +219,7 @@ async def settings_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if query.data == "settings_info":
+        # get_user is imported at the top
         user = get_user(telegram_id)
         try:
             await query.edit_message_text(
