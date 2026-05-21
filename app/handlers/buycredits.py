@@ -310,7 +310,7 @@ async def payment_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context,
             context.bot.send_message,
             chat_id=query.message.chat_id,
-            text="💎 Buy Credits\n\nChoose a package:",
+            text="Choose a package:",
             reply_markup=_buy_credits_menu_markup(query.from_user.id),
             state_key="buycredits_flow_message_id",
         )
