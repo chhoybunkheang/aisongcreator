@@ -184,27 +184,35 @@ async def settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def settings_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     query = update.callback_query
-    await query.answer()
+    if query is not None:
+        await query.answer()
+        telegram_id = query.from_user.id
+        is_admin = telegram_id == ADMIN_ID
 
-    telegram_id = query.from_user.id
-    is_admin = telegram_id == ADMIN_ID
+        # Admin credit status and set prompt
+        if is_admin and query.data == "settings_credit_status":
+            admin_user = get_user(ADMIN_ID)
+            current_credits = admin_user.credits if admin_user else 0
+            await query.edit_message_text(
+                f"💎 Admin Credit Status\n\nCurrent credits: {current_credits}\n\nEnter a new credit amount to set:",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("⬅️ Back", callback_data="settings_back")]
+                ])
+            )
+            context.user_data["settings_waiting_for_credit_amount"] = True
+            return
 
+        # ...existing code for other query.data cases...
 
-    # Admin credit status and set prompt
-    if is_admin and query.data == "settings_credit_status":
-        admin_user = get_user(ADMIN_ID)
-        current_credits = admin_user.credits if admin_user else 0
-        await query.edit_message_text(
-            f"💎 Admin Credit Status\n\nCurrent credits: {current_credits}\n\nEnter a new credit amount to set:",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("⬅️ Back", callback_data="settings_back")]
-            ])
-        )
-        context.user_data["settings_waiting_for_credit_amount"] = True
-        return
+        # (Keep all the rest of the query.data handling code unchanged)
 
-    # Handle admin entering new credit amount
-    if is_admin and context.user_data.get("settings_waiting_for_credit_amount") and update.message:
+    # Handle admin entering new credit amount (text message case)
+    elif (
+        update.message and
+        update.effective_user and
+        update.effective_user.id == ADMIN_ID and
+        context.user_data.get("settings_waiting_for_credit_amount")
+    ):
         try:
             amount = int(update.message.text.strip())
             set_credits(ADMIN_ID, amount)
