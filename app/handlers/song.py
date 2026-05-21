@@ -13,6 +13,17 @@ from telegram.ext import (
     filters,
 )
 
+
+# Cancel handler for any flow
+async def cancel_flow_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.callback_query:
+        await update.callback_query.answer()
+        await update.callback_query.edit_message_text("❌ Song creation cancelled. You can start again anytime.")
+    elif update.message:
+        await update.message.reply_text("❌ Song creation cancelled. You can start again anytime.")
+    # Optionally clear user_data or any state here
+    return ConversationHandler.END
+
 from app.config.settings import (
     BOT_USERNAME_LABEL,
     GENERATED_COVERS_DIR,
@@ -182,6 +193,7 @@ def _song_type_keyboard():
         [InlineKeyboardButton("🎧 TikTok Remix", callback_data="stype_tiktok")],
         [InlineKeyboardButton("💔 Sad Breakup", callback_data="stype_breakup")],
         [InlineKeyboardButton("✍️ Custom", callback_data="stype_custom")],
+        [InlineKeyboardButton("❌ Cancel", callback_data="cancel_flow")],
     ])
 
 
@@ -208,6 +220,7 @@ def _music_style_keyboard():
             InlineKeyboardButton("🇰🇭 Khmer Remix", callback_data="mstyle_Khmer Remix"),
         ],
         [InlineKeyboardButton("✍️ Type My Own", callback_data="mstyle_custom")],
+        [InlineKeyboardButton("❌ Cancel", callback_data="cancel_flow")],
     ])
 
 
@@ -1388,58 +1401,75 @@ song_handler = ConversationHandler(
         CHOOSE_TYPE: [
             CallbackQueryHandler(choose_type, pattern=r"^type_"),
             CallbackQueryHandler(pick_saved_lyrics, pattern=r"^lyr_pick_\d+$"),
+            CallbackQueryHandler(cancel_flow_handler, pattern=r"^cancel_flow$")
         ],
         SONG_TYPE: [
-            CallbackQueryHandler(choose_song_type, pattern=r"^stype_")
+            CallbackQueryHandler(choose_song_type, pattern=r"^stype_"),
+            CallbackQueryHandler(cancel_flow_handler, pattern=r"^cancel_flow$")
         ],
         CUSTOM_SONG_TYPE: [
-            MessageHandler(filters.TEXT & ~filters.COMMAND, get_custom_song_type)
+            MessageHandler(filters.TEXT & ~filters.COMMAND, get_custom_song_type),
+            CallbackQueryHandler(cancel_flow_handler, pattern=r"^cancel_flow$")
         ],
         PASTE_LYRICS: [
-            MessageHandler(filters.TEXT & ~filters.COMMAND, get_pasted_lyrics)
+            MessageHandler(filters.TEXT & ~filters.COMMAND, get_pasted_lyrics),
+            CallbackQueryHandler(cancel_flow_handler, pattern=r"^cancel_flow$")
         ],
         MUSIC_STYLE: [
             CallbackQueryHandler(choose_music_style, pattern=r"^mstyle_"),
-            MessageHandler(filters.TEXT & ~filters.COMMAND, get_music_style)
+            MessageHandler(filters.TEXT & ~filters.COMMAND, get_music_style),
+            CallbackQueryHandler(cancel_flow_handler, pattern=r"^cancel_flow$")
         ],
         TOPIC: [
-            MessageHandler(filters.TEXT & ~filters.COMMAND, get_topic)
+            MessageHandler(filters.TEXT & ~filters.COMMAND, get_topic),
+            CallbackQueryHandler(cancel_flow_handler, pattern=r"^cancel_flow$")
         ],
         MOOD: [
             CallbackQueryHandler(choose_mood, pattern=r"^mood_"),
-            MessageHandler(filters.TEXT & ~filters.COMMAND, get_mood)
+            MessageHandler(filters.TEXT & ~filters.COMMAND, get_mood),
+            CallbackQueryHandler(cancel_flow_handler, pattern=r"^cancel_flow$")
         ],
         DESCRIPTION: [
             MessageHandler(filters.TEXT & ~filters.COMMAND, get_description),
-            CallbackQueryHandler(skip_description, pattern=r"^desc_skip$")
+            CallbackQueryHandler(skip_description, pattern=r"^desc_skip$"),
+            CallbackQueryHandler(cancel_flow_handler, pattern=r"^cancel_flow$")
         ],
         LANGUAGE: [
-            CallbackQueryHandler(get_language, pattern=r"^lang_")
+            CallbackQueryHandler(get_language, pattern=r"^lang_"),
+            CallbackQueryHandler(cancel_flow_handler, pattern=r"^cancel_flow$")
         ],
         SINGER: [
-            CallbackQueryHandler(get_singer, pattern=r"^singer_")
+            CallbackQueryHandler(get_singer, pattern=r"^singer_"),
+            CallbackQueryHandler(cancel_flow_handler, pattern=r"^cancel_flow$")
         ],
         LYRICS_ACTION: [
-            CallbackQueryHandler(lyrics_action, pattern=r"^lyrics_")
+            CallbackQueryHandler(lyrics_action, pattern=r"^lyrics_"),
+            CallbackQueryHandler(cancel_flow_handler, pattern=r"^cancel_flow$")
         ],
         EDIT_LYRICS: [
-            MessageHandler(filters.TEXT & ~filters.COMMAND, edit_lyrics)
+            MessageHandler(filters.TEXT & ~filters.COMMAND, edit_lyrics),
+            CallbackQueryHandler(cancel_flow_handler, pattern=r"^cancel_flow$")
         ],
         CONFIRM_MP3: [
-            CallbackQueryHandler(confirm_mp3)
+            CallbackQueryHandler(confirm_mp3),
+            CallbackQueryHandler(cancel_flow_handler, pattern=r"^cancel_flow$")
         ],
         CONFIRM_COVER: [
-            CallbackQueryHandler(confirm_cover)
+            CallbackQueryHandler(confirm_cover),
+            CallbackQueryHandler(cancel_flow_handler, pattern=r"^cancel_flow$")
         ],
         CHOOSE_COVER: [
-            CallbackQueryHandler(choose_cover_source, pattern=r"^cover_")
+            CallbackQueryHandler(choose_cover_source, pattern=r"^cover_"),
+            CallbackQueryHandler(cancel_flow_handler, pattern=r"^cancel_flow$")
         ],
         UPLOAD_COVER: [
-            MessageHandler(filters.PHOTO, receive_uploaded_cover)
+            MessageHandler(filters.PHOTO, receive_uploaded_cover),
+            CallbackQueryHandler(cancel_flow_handler, pattern=r"^cancel_flow$")
         ],
         CONFIRM_VIDEO: [
-            CallbackQueryHandler(confirm_video)
+            CallbackQueryHandler(confirm_video),
+            CallbackQueryHandler(cancel_flow_handler, pattern=r"^cancel_flow$")
         ],
     },
-    fallbacks=[]
+    fallbacks=[CallbackQueryHandler(cancel_flow_handler, pattern=r"^cancel_flow$")]
 )
