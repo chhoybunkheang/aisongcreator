@@ -13,9 +13,6 @@ from app.database.queries import (
     delete_song_lyrics,
     delete_song_mp3,
     delete_song_mp4,
-    delete_user_lyrics,
-    delete_user_mp3,
-    delete_user_mp4,
     get_enabled_song_languages,
     get_payment_qr_file_ids,
     get_user,
@@ -25,15 +22,6 @@ from app.database.queries import (
     update_enabled_song_languages,
 )
 from app.utils.helpers import replace_flow_message
-
-
-def _language_flag(language):
-    normalized = (language or "").strip().lower()
-    if normalized in {"khmer", "cambodian", "km", "kh"}:
-        return "🇰🇭"
-    if normalized in {"english", "en"}:
-        return "🇺🇸"
-    return "🌐"
 
 
 def _settings_menu_keyboard():
@@ -165,11 +153,11 @@ def _deletable_items(telegram_id, item_type):
         print(f"[DEBUG] Song ID: {getattr(song, 'id', None)}, video_path: {getattr(song, 'video_path', None)}, mp3_path: {getattr(song, 'mp3_path', None)}, lyrics: {bool(getattr(song, 'lyrics', None))}")
 
     if item_type == "lyrics":
-        items = [song for song in songs if song.lyrics]
+        items = [song for song in songs if getattr(song, "lyrics", None)]
     elif item_type == "mp3":
-        items = [song for song in songs if song.mp3_path]
+        items = [song for song in songs if getattr(song, "mp3_path", None)]
     elif item_type == "mp4":
-        items = [song for song in songs if song.video_path]
+        items = [song for song in songs if getattr(song, "video_path", None)]
     else:
         items = []
     print(f"[DEBUG] _deletable_items: found {len(items)} items for type {item_type}")
@@ -177,10 +165,15 @@ def _deletable_items(telegram_id, item_type):
 
 
 async def settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    is_admin = update.effective_user.id == ADMIN_ID
+    effective_user = update.effective_user
+    message = update.message
+    if effective_user is None or message is None:
+        return
+
+    is_admin = effective_user.id == ADMIN_ID
     await replace_flow_message(
         context,
-        update.message.reply_text,
+        message.reply_text,
         "⚙️ Settings\n\nChoose an option:",
         reply_markup=_settings_menu_keyboard_for_user(is_admin),
         state_key="settings_flow_message_id",
@@ -193,109 +186,111 @@ async def settings_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.callback_query:
         print(f"[DEBUG] callback_data: {update.callback_query.data}")
     query = update.callback_query
-    if query is not None:
-        await query.answer()
-        telegram_id = query.from_user.id
-        is_admin = telegram_id == ADMIN_ID
+    user_data = context.user_data
+    if query is None:
+        message = update.message
+        if (
+            message and
+            update.effective_user and
+            user_data is not None and
+            update.effective_user.id == ADMIN_ID and
+            user_data.get("settings_waiting_for_credit_amount")
+        ):
+            print(f"[DEBUG] Received credit input: '{message.text}' user_data: {user_data}")
+            text = (message.text or "").strip()
+            if text.isdigit():
+                amount = int(text)
+                set_credits(ADMIN_ID, amount)
+                await message.reply_text(f"✅ Admin credits set to {amount}.")
+                user_data.pop("settings_waiting_for_credit_amount", None)
+            else:
+                await message.reply_text("❌ Please enter a valid number (digits only). Try again:")
+        return
 
-        # Admin credit status and set prompt
-        if is_admin and query.data == "settings_credit_status":
-            admin_user = get_user(ADMIN_ID)
-            current_credits = admin_user.credits if admin_user else 0
+    if user_data is None or query.from_user is None:
+        return
+
+    await query.answer()
+    chat = update.effective_chat
+    telegram_id = query.from_user.id
+    is_admin = telegram_id == ADMIN_ID
+    query_data = query.data or ""
+
+    # Admin credit status and set prompt
+    if is_admin and query_data == "settings_credit_status":
+        admin_user = get_user(ADMIN_ID)
+        current_credits = admin_user.credits if admin_user else 0
+        await query.edit_message_text(
+            f"💎 Admin Credit Status\n\nCurrent credits: {current_credits}\n\nEnter a new credit amount to set:",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("⬅️ Back", callback_data="settings_back")]
+            ])
+        )
+        user_data["settings_waiting_for_credit_amount"] = True
+        return
+
+    if query_data == "settings_back":
+        user_data.pop("payment_qr_package", None)
+        await query.edit_message_text(
+            "⚙️ Settings\n\nChoose an option:",
+            reply_markup=_settings_menu_keyboard_for_user(is_admin)
+        )
+        return
+
+    if query_data == "settings_info":
+        user = get_user(telegram_id)
+        try:
             await query.edit_message_text(
-                f"💎 Admin Credit Status\n\nCurrent credits: {current_credits}\n\nEnter a new credit amount to set:",
+                _settings_info_text(user, query.from_user),
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("⬅️ Back", callback_data="settings_back")]
+                    [InlineKeyboardButton("⬅️ Back", callback_data="settings_back")],
                 ])
             )
-            context.user_data["settings_waiting_for_credit_amount"] = True
-            return
-
-        # ...existing code for other query.data cases...
-        if query.data == "settings_back":
-            context.user_data.pop("payment_qr_package", None)
-            await query.edit_message_text(
-                "⚙️ Settings\n\nChoose an option:",
-                reply_markup=_settings_menu_keyboard_for_user(is_admin)
-            )
-            return
-
-        if query.data == "settings_info":
-            # get_user is imported at the top
-            user = get_user(telegram_id)
-            try:
-                await query.edit_message_text(
-                    _settings_info_text(user, query.from_user),
-                    reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton("⬅️ Back", callback_data="settings_back")],
-                    ])
-                )
-            except Exception as e:
-                # Log the error and send a new message as fallback
-                print(f"[settings_info] edit_message_text failed: {e}")
-                await context.bot.send_message(
-                    chat_id=query.message.chat_id,
-                    text=_settings_info_text(user, query.from_user),
-                    reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton("⬅️ Back", callback_data="settings_back")],
-                    ])
-                )
-            return
-
-        if query.data == "settings_delete":
-            await query.edit_message_text(
-                "🗑 Delete\n\nChoose what you want to delete:",
-                reply_markup=_settings_delete_keyboard()
-            )
-            return
-
-        if query.data == "settings_reset":
-            await query.edit_message_text(
-                "♻️ Reset\n\nThis will delete all your lyrics, MP3, and MP4 data.",
-                reply_markup=_settings_reset_keyboard()
-            )
-            return
-
-        if query.data == "settings_languages":
-            if not is_admin:
-                await query.answer("Admin only.", show_alert=True)
+        except Exception as e:
+            print(f"[settings_info] edit_message_text failed: {e}")
+            if chat is None:
                 return
-
-            enabled_languages = get_enabled_song_languages()
-            await query.edit_message_text(
-                "🌍 Visible Song Languages\n\nChoose which languages users can see in Create Song:",
-                reply_markup=_settings_language_keyboard(enabled_languages)
+            await context.bot.send_message(
+                chat_id=chat.id,
+                text=_settings_info_text(user, query.from_user),
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("⬅️ Back", callback_data="settings_back")],
+                ])
             )
-            return
-        # ...continue with all other query.data cases, all inside this block...
-        # (rest of the function unchanged)
         return
 
-    # Handle admin entering new credit amount (text message case)
-    elif (
-        update.message and
-        update.effective_user and
-        update.effective_user.id == ADMIN_ID and
-        context.user_data.get("settings_waiting_for_credit_amount")
-    ):
-        # Debug logging
-        print(f"[DEBUG] Received credit input: '{update.message.text}' user_data: {context.user_data}")
-        text = update.message.text.strip()
-        if text.isdigit():
-            amount = int(text)
-            set_credits(ADMIN_ID, amount)
-            await update.message.reply_text(f"✅ Admin credits set to {amount}.")
-            context.user_data.pop("settings_waiting_for_credit_amount", None)
-        else:
-            await update.message.reply_text("❌ Please enter a valid number (digits only). Try again:")
+    if query_data == "settings_delete":
+        await query.edit_message_text(
+            "🗑 Delete\n\nChoose what you want to delete:",
+            reply_markup=_settings_delete_keyboard()
+        )
         return
 
-    if query.data == "settings_payment":
+    if query_data == "settings_reset":
+        await query.edit_message_text(
+            "♻️ Reset\n\nThis will delete all your lyrics, MP3, and MP4 data.",
+            reply_markup=_settings_reset_keyboard()
+        )
+        return
+
+    if query_data == "settings_languages":
         if not is_admin:
             await query.answer("Admin only.", show_alert=True)
             return
 
-        context.user_data.pop("payment_qr_package", None)
+        enabled_languages = get_enabled_song_languages()
+        await query.edit_message_text(
+            "🌍 Visible Song Languages\n\nChoose which languages users can see in Create Song:",
+            reply_markup=_settings_language_keyboard(enabled_languages)
+        )
+        return
+
+    if query_data == "settings_payment":
+        if not is_admin:
+            await query.answer("Admin only.", show_alert=True)
+            return
+
+        user_data.pop("payment_qr_package", None)
         qr_file_ids = get_payment_qr_file_ids()
         await query.edit_message_text(
             "📷 QR Payment Setup\n\nChoose a package to upload or replace its QR image:",
@@ -303,13 +298,13 @@ async def settings_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    if query.data.startswith("settings_payment_pkg_"):
+    if query_data.startswith("settings_payment_pkg_"):
         if not is_admin:
             await query.answer("Admin only.", show_alert=True)
             return
 
-        package_credits = int(query.data.rsplit("_", 1)[1])
-        context.user_data["payment_qr_package"] = package_credits
+        package_credits = int(query_data.rsplit("_", 1)[1])
+        user_data["payment_qr_package"] = package_credits
         qr_file_ids = get_payment_qr_file_ids()
         has_qr = bool(qr_file_ids.get(str(package_credits)))
         await query.edit_message_text(
@@ -319,13 +314,13 @@ async def settings_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    if query.data.startswith("settings_payment_upload_"):
+    if query_data.startswith("settings_payment_upload_"):
         if not is_admin:
             await query.answer("Admin only.", show_alert=True)
             return
 
-        package_credits = int(query.data.rsplit("_", 1)[1])
-        context.user_data["payment_qr_package"] = package_credits
+        package_credits = int(query_data.rsplit("_", 1)[1])
+        user_data["payment_qr_package"] = package_credits
         await query.edit_message_text(
             f"💳 Upload QR For {package_credits} Credits\n\n"
             "Send one QR image now. The uploaded image will be shown to users who choose this package.",
@@ -335,19 +330,22 @@ async def settings_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    if query.data.startswith("settings_payment_view_"):
+    if query_data.startswith("settings_payment_view_"):
         if not is_admin:
             await query.answer("Admin only.", show_alert=True)
             return
 
-        package_credits = int(query.data.rsplit("_", 1)[1])
+        package_credits = int(query_data.rsplit("_", 1)[1])
         qr_file_id = get_payment_qr_file_ids().get(str(package_credits), "")
         if not qr_file_id:
             await query.answer("No QR image saved for this package.", show_alert=True)
             return
 
+        if chat is None:
+            return
+
         await context.bot.send_photo(
-            chat_id=query.message.chat_id,
+            chat_id=chat.id,
             photo=qr_file_id,
             caption=f"Current QR for {package_credits} credits.",
         )
@@ -358,12 +356,12 @@ async def settings_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    if query.data.startswith("settings_payment_remove_"):
+    if query_data.startswith("settings_payment_remove_"):
         if not is_admin:
             await query.answer("Admin only.", show_alert=True)
             return
 
-        package_credits = int(query.data.rsplit("_", 1)[1])
+        package_credits = int(query_data.rsplit("_", 1)[1])
         deleted = delete_payment_qr_file_id(package_credits)
         await query.edit_message_text(
             (
@@ -374,12 +372,12 @@ async def settings_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    if query.data.startswith("settings_lang_toggle_"):
+    if query_data.startswith("settings_lang_toggle_"):
         if not is_admin:
             await query.answer("Admin only.", show_alert=True)
             return
 
-        selected_language = query.data.replace("settings_lang_toggle_", "", 1)
+        selected_language = query_data.replace("settings_lang_toggle_", "", 1)
         enabled_languages = get_enabled_song_languages()
 
         if selected_language in enabled_languages:
@@ -401,9 +399,9 @@ async def settings_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    if query.data in {"settings_delete_lyrics", "settings_delete_mp3", "settings_delete_mp4"}:
+    if query_data in {"settings_delete_lyrics", "settings_delete_mp3", "settings_delete_mp4"}:
         try:
-            item_type = query.data.replace("settings_delete_", "")
+            item_type = query_data.replace("settings_delete_", "")
             items = _deletable_items(telegram_id, item_type)
             print(f"[DEBUG] settings_action: delete {item_type}, items={items}")
 
@@ -423,13 +421,13 @@ async def settings_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
             import traceback
             print(f"[ERROR] Exception in delete item logic: {e}\n{traceback.format_exc()}")
             await query.edit_message_text(
-                f"❌ An error occurred while loading your {query.data.replace('settings_delete_', '').upper()} items. Please contact support.",
+                f"❌ An error occurred while loading your {query_data.replace('settings_delete_', '').upper()} items. Please contact support.",
                 reply_markup=_settings_delete_keyboard()
             )
             return
 
-    if query.data.startswith("settings_delete_item_"):
-        _, _, _, item_type, song_id = query.data.split("_", 4)
+    if query_data.startswith("settings_delete_item_"):
+        _, _, _, item_type, song_id = query_data.split("_", 4)
         song_id = int(song_id)
 
         if item_type == "lyrics":
