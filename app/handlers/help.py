@@ -13,6 +13,7 @@ from app.database.queries import (
     delete_song_lyrics,
     delete_song_mp3,
     delete_song_mp4,
+    get_all_user_summaries,
     get_enabled_song_languages,
     get_payment_qr_file_ids,
     get_user,
@@ -39,6 +40,7 @@ def _settings_menu_keyboard_for_user(is_admin):
         rows.append([
             InlineKeyboardButton("💎 Credit Status", callback_data="settings_credit_status")
         ])
+        rows.append([InlineKeyboardButton("👥 Users", callback_data="settings_users")])
         rows.append([InlineKeyboardButton("🌍 Languages", callback_data="settings_languages")])
         rows.append([InlineKeyboardButton("📷 QR Payment", callback_data="settings_payment")])
 
@@ -83,6 +85,35 @@ def _settings_info_text(user_obj, tg_user):
         f"Telegram ID: {tg_user.id}\n"
         f"💎 Credits: {credits}"
     )
+
+
+def _settings_users_chunks(user_summaries):
+    header = f"👥 Bot Users\n\nTotal users: {len(user_summaries)}"
+    if not user_summaries:
+        return [header + "\n\nNo users found yet."]
+
+    chunks = []
+    current_chunk = header
+
+    for index, user_summary in enumerate(user_summaries, start=1):
+        created_at = user_summary["created_at"]
+        joined_text = created_at.strftime("%Y-%m-%d %H:%M") if created_at else "Unknown"
+        entry = (
+            f"\n\n{index}. {user_summary['name']}\n"
+            f"Telegram ID: {user_summary['telegram_id']}\n"
+            f"Credits: {user_summary['credits']}\n"
+            f"Songs: {user_summary['song_count']}\n"
+            f"Joined: {joined_text}"
+        )
+
+        if len(current_chunk) + len(entry) > 3500:
+            chunks.append(current_chunk)
+            current_chunk = "👥 Bot Users (continued)" + entry
+        else:
+            current_chunk += entry
+
+    chunks.append(current_chunk)
+    return chunks
 
 
 def _language_flag(language):
@@ -229,9 +260,32 @@ async def settings_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_data["settings_waiting_for_credit_amount"] = True
         return
 
+    if query_data == "settings_users":
+        if not is_admin:
+            await query.answer("Admin only.", show_alert=True)
+            return
+
+        await query.answer()
+        user_data.pop("settings_waiting_for_credit_amount", None)
+        user_chunks = _settings_users_chunks(get_all_user_summaries())
+        await query.edit_message_text(
+            user_chunks[0],
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("⬅️ Back", callback_data="settings_back")],
+            ])
+        )
+
+        if chat is None:
+            return
+
+        for extra_chunk in user_chunks[1:]:
+            await context.bot.send_message(chat_id=chat.id, text=extra_chunk)
+        return
+
     if query_data == "settings_back":
         await query.answer()
         user_data.pop("payment_qr_package", None)
+        user_data.pop("settings_waiting_for_credit_amount", None)
         await query.edit_message_text(
             "⚙️ Settings\n\nChoose an option:",
             reply_markup=_settings_menu_keyboard_for_user(is_admin)

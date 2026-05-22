@@ -294,6 +294,36 @@ def get_user(telegram_id):
     return user
 
 
+def get_all_user_summaries():
+
+    db = SessionLocal()
+
+    users = (
+        db.query(User)
+        .order_by(User.created_at.desc())
+        .all()
+    )
+
+    summaries = []
+    for user in users:
+        song_count = (
+            db.query(Song)
+            .filter(Song.user_id == user.id)
+            .count()
+        )
+        summaries.append({
+            "name": user.name or "Unknown",
+            "telegram_id": user.telegram_id or "",
+            "credits": user.credits or 0,
+            "song_count": song_count,
+            "created_at": user.created_at,
+        })
+
+    db.close()
+
+    return summaries
+
+
 def get_enabled_song_languages():
 
     db = SessionLocal()
