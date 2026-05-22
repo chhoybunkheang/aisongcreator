@@ -1250,7 +1250,8 @@ async def confirm_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         context.user_data["video_animation_prompt_pending"] = True
         await query.edit_message_text(
-            "✨ Do you want to add animation to the video?",
+            f"Create video for \"{context.user_data.get('topic', 'your song')}\"\n\n"
+            "Step 1 of 2: Do you want animation in the video?",
             reply_markup=_yes_no_keyboard()
         )
         return CONFIRM_VIDEO
@@ -1261,7 +1262,7 @@ async def confirm_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if query.data == "yes":
             context.user_data["video_animation_style_prompt_pending"] = True
             await query.edit_message_text(
-                "🎞 Choose the animation style for your video:",
+                "Choose the animation style for your video:",
                 reply_markup=_animation_style_keyboard()
             )
             return CONFIRM_VIDEO
@@ -1269,7 +1270,8 @@ async def confirm_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["video_animation_style"] = "none"
         context.user_data["video_subtitle_prompt_pending"] = True
         await query.edit_message_text(
-            "📝 Do you want to add subtitles to the video?",
+            "Step 2 of 2: Do you want to add subtitles to the video?\n\n"
+            "Subtitles use extra credits.",
             reply_markup=_yes_no_keyboard()
         )
         return CONFIRM_VIDEO
@@ -1292,7 +1294,8 @@ async def confirm_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["video_animation_style"] = animation_style
         context.user_data["video_subtitle_prompt_pending"] = True
         await query.edit_message_text(
-            "📝 Do you want to add subtitles to the video?",
+            "Step 2 of 2: Do you want to add subtitles to the video?\n\n"
+            "Subtitles use extra credits.",
             reply_markup=_yes_no_keyboard()
         )
         return CONFIRM_VIDEO
