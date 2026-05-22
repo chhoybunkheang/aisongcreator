@@ -28,6 +28,7 @@ from app.database.queries import (
     get_song_by_id,
     get_user,
     get_user_songs,
+    refund_credit,
     update_song_cover,
     update_song_lyrics,
     update_song_mp3,
@@ -324,13 +325,12 @@ async def ms_gen_mp3(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     song_id = int(query.data.split("_")[2])
     song = get_song_by_id(song_id)
-    user = get_user(query.from_user.id)
-
     if not song:
         await context.bot.send_message(chat_id=query.message.chat_id, text="Song not found.")
         return
 
-    if not user or user.credits <= 0:
+    credit_reserved = deduct_credit(query.from_user.id)
+    if not credit_reserved:
         await query.edit_message_text(
             "❌ You don't have enough credits.\n\n"
             "💎 Please buy more credits."
@@ -357,7 +357,6 @@ async def ms_gen_mp3(update: Update, context: ContextTypes.DEFAULT_TYPE):
             language=song.language or "",
             progress_callback=progress_callback,
         )
-        deduct_credit(query.from_user.id)
         update_song_mp3(song_id, mp3_file)
         subtitle_timing = []
         try:
@@ -409,6 +408,8 @@ async def ms_gen_mp3(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_message(chat_id=query.message.chat_id, text="All done!")
 
     except Exception as e:
+        if credit_reserved:
+            refund_credit(query.from_user.id)
         await stop_progress_message(
             progress_task,
             progress_stop,
@@ -613,6 +614,19 @@ async def ms_gen_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     subtitles_enabled = choice == "yes"
+    subtitle_credit_reserved = False
+    if subtitles_enabled:
+        subtitle_credit_reserved = deduct_credit(query.from_user.id, minimum_credits=11)
+        if not subtitle_credit_reserved:
+            await context.bot.send_message(
+                chat_id=query.message.chat_id,
+                text=(
+                    "❌ You need more than 10 credits to create a video with subtitles.\n\n"
+                    "💎 Please add credits or create the video without subtitles."
+                )
+            )
+            return
+
     animation_style = context.user_data.pop("ms_video_animation_style", "none")
     await query.edit_message_text(
         "Generating subtitles...\nPreparing request..."
@@ -684,7 +698,6 @@ async def ms_gen_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         if subtitles_enabled:
-            deduct_credit(query.from_user.id)
             user = get_user(query.from_user.id)
 
         if subtitles_enabled and user:
@@ -698,6 +711,8 @@ async def ms_gen_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_message(chat_id=query.message.chat_id, text="All done!")
 
     except Exception as e:
+        if subtitle_credit_reserved:
+            refund_credit(query.from_user.id)
         await stop_progress_message(
             progress_task,
             progress_stop,
@@ -1172,6 +1187,21 @@ async def add_subtitle_to_video(update: Update, context: ContextTypes.DEFAULT_TY
         auto_increment=False,
     )
     progress_callback = make_progress_notifier(asyncio.get_running_loop(), progress_message)
+    subtitle_credit_reserved = deduct_credit(query.from_user.id, minimum_credits=11)
+    if not subtitle_credit_reserved:
+        await stop_progress_message(progress_task, progress_stop, progress_message, "Adding subtitles failed")
+        await context.bot.send_message(
+            chat_id=query.message.chat_id,
+            text=(
+                "❌ You need more than 10 credits to add or update subtitles.\n\n"
+                "💎 Please add credit."
+            ),
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("💎 Add Credits", callback_data="buycredits_menu"),
+                InlineKeyboardButton("⬅️ Back", callback_data=f"watchvid_{song.id}"),
+            ]]),
+        )
+        return
 
     try:
         subtitle_timing = None
@@ -1219,8 +1249,6 @@ async def add_subtitle_to_video(update: Update, context: ContextTypes.DEFAULT_TY
                 read_timeout=300,
                 write_timeout=300,
             )
-
-        deduct_credit(query.from_user.id)
         user = get_user(query.from_user.id)
         if user:
             await context.bot.send_message(
@@ -1229,6 +1257,8 @@ async def add_subtitle_to_video(update: Update, context: ContextTypes.DEFAULT_TY
             )
 
     except Exception as e:
+        if subtitle_credit_reserved:
+            refund_credit(query.from_user.id)
         await stop_progress_message(
             progress_task,
             progress_stop,

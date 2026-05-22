@@ -7,6 +7,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
 )
 
 from app.database.db import Base
@@ -124,6 +125,9 @@ class ReferralInvite(Base):
 class ReferralReward(Base):
 
     __tablename__ = "referral_rewards"
+    __table_args__ = (
+        UniqueConstraint("inviter_telegram_id", "milestone", name="uq_referral_rewards_inviter_milestone"),
+    )
 
     id = Column(Integer, primary_key=True)
 

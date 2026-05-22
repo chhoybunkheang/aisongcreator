@@ -16,6 +16,8 @@ import json
 import os
 from datetime import datetime
 
+from sqlalchemy.exc import IntegrityError
+
 from app.database.db import SessionLocal
 from app.database.models import (
     AppSetting,
@@ -515,31 +517,54 @@ def delete_payment_qr_file_id(package_credits):
 # -----------------------------------
 # DEDUCT CREDIT
 # -----------------------------------
-def deduct_credit(telegram_id):
+def deduct_credit(telegram_id, minimum_credits=1):
 
     db = SessionLocal()
 
-    user = (
-        db.query(User)
-        .filter(User.telegram_id == str(telegram_id))
-        .first()
-    )
+    try:
+        required_credits = max(int(minimum_credits or 1), 1)
+        updated_rows = (
+            db.query(User)
+            .filter(
+                User.telegram_id == str(telegram_id),
+                User.credits >= required_credits,
+            )
+            .update({User.credits: User.credits - 1}, synchronize_session=False)
+        )
 
-    if not user:
+        if not updated_rows:
+            db.rollback()
+            return False
+
+        db.commit()
+        return True
+    finally:
         db.close()
-        return False
 
-    if user.credits <= 0:
+
+def refund_credit(telegram_id, credits=1):
+
+    db = SessionLocal()
+
+    try:
+        refund_amount = max(int(credits or 0), 0)
+        if refund_amount <= 0:
+            return False
+
+        updated_rows = (
+            db.query(User)
+            .filter(User.telegram_id == str(telegram_id))
+            .update({User.credits: User.credits + refund_amount}, synchronize_session=False)
+        )
+
+        if not updated_rows:
+            db.rollback()
+            return False
+
+        db.commit()
+        return True
+    finally:
         db.close()
-        return False
-
-    user.credits -= 1
-
-    db.commit()
-
-    db.close()
-
-    return True
 
 # -----------------------------------
 # ADD CREDITS
@@ -610,75 +635,83 @@ def register_referral_start(inviter_telegram_id, invited_telegram_id):
         return {"status": "self_referral"}
 
     db = SessionLocal()
-
-    inviter = (
-        db.query(User)
-        .filter(User.telegram_id == inviter_telegram_id)
-        .first()
-    )
-    invited = (
-        db.query(User)
-        .filter(User.telegram_id == invited_telegram_id)
-        .first()
-    )
-
-    if not inviter or not invited:
-        db.close()
-        return {"status": "invalid"}
-
-    existing_invite = (
-        db.query(ReferralInvite)
-        .filter(ReferralInvite.invited_telegram_id == invited_telegram_id)
-        .first()
-    )
-    if existing_invite:
-        db.close()
-        return {"status": "already_recorded"}
-
-    db.add(
-        ReferralInvite(
-            inviter_telegram_id=inviter_telegram_id,
-            invited_telegram_id=invited_telegram_id,
+    try:
+        inviter_exists = (
+            db.query(User.id)
+            .filter(User.telegram_id == inviter_telegram_id)
+            .first()
         )
-    )
-    db.flush()
+        invited_exists = (
+            db.query(User.id)
+            .filter(User.telegram_id == invited_telegram_id)
+            .first()
+        )
 
-    invite_count = (
-        db.query(ReferralInvite)
-        .filter(ReferralInvite.inviter_telegram_id == inviter_telegram_id)
-        .count()
-    )
-    paid_reward_count = (
-        db.query(ReferralReward)
-        .filter(ReferralReward.inviter_telegram_id == inviter_telegram_id)
-        .count()
-    )
+        if not inviter_exists or not invited_exists:
+            return {"status": "invalid"}
 
-    earned_reward_count = invite_count // REFERRAL_INVITES_PER_REWARD
-    newly_earned_rewards = max(earned_reward_count - paid_reward_count, 0)
-    granted_credits = newly_earned_rewards * REFERRAL_REWARD_CREDITS
+        existing_invite = (
+            db.query(ReferralInvite.id)
+            .filter(ReferralInvite.invited_telegram_id == invited_telegram_id)
+            .first()
+        )
+        if existing_invite:
+            return {"status": "already_recorded"}
 
-    if granted_credits > 0:
-        inviter.credits += granted_credits
-        for milestone in range(paid_reward_count + 1, earned_reward_count + 1):
-            db.add(
-                ReferralReward(
-                    inviter_telegram_id=inviter_telegram_id,
-                    milestone=milestone,
-                    credits_awarded=REFERRAL_REWARD_CREDITS,
+        try:
+            with db.begin_nested():
+                db.add(
+                    ReferralInvite(
+                        inviter_telegram_id=inviter_telegram_id,
+                        invited_telegram_id=invited_telegram_id,
+                    )
                 )
+                db.flush()
+        except IntegrityError:
+            return {"status": "already_recorded"}
+
+        invite_count = (
+            db.query(ReferralInvite)
+            .filter(ReferralInvite.inviter_telegram_id == inviter_telegram_id)
+            .count()
+        )
+        earned_reward_count = invite_count // REFERRAL_INVITES_PER_REWARD
+
+        awarded_reward_count = 0
+        for milestone in range(1, earned_reward_count + 1):
+            try:
+                with db.begin_nested():
+                    db.add(
+                        ReferralReward(
+                            inviter_telegram_id=inviter_telegram_id,
+                            milestone=milestone,
+                            credits_awarded=REFERRAL_REWARD_CREDITS,
+                        )
+                    )
+                    db.flush()
+                    awarded_reward_count += 1
+            except IntegrityError:
+                pass
+
+        granted_credits = awarded_reward_count * REFERRAL_REWARD_CREDITS
+        if granted_credits > 0:
+            (
+                db.query(User)
+                .filter(User.telegram_id == inviter_telegram_id)
+                .update({User.credits: User.credits + granted_credits}, synchronize_session=False)
             )
 
-    db.commit()
-    db.close()
+        db.commit()
 
-    return {
-        "status": "recorded",
-        "invite_count": invite_count,
-        "granted_credits": granted_credits,
-        "reward_credits": REFERRAL_REWARD_CREDITS,
-        "invites_per_reward": REFERRAL_INVITES_PER_REWARD,
-    }
+        return {
+            "status": "recorded",
+            "invite_count": invite_count,
+            "granted_credits": granted_credits,
+            "reward_credits": REFERRAL_REWARD_CREDITS,
+            "invites_per_reward": REFERRAL_INVITES_PER_REWARD,
+        }
+    finally:
+        db.close()
 
 
 def create_payment_request(telegram_id, credits, payment_method, receipt_file_id, receipt_file_unique_id):

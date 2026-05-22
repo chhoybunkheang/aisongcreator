@@ -36,6 +36,7 @@ from app.database.queries import (
     get_song_by_id,
     get_user,
     get_user_songs,
+    refund_credit,
     save_song,
     update_song_cover,
     update_song_lyrics,
@@ -906,8 +907,8 @@ async def confirm_mp3(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("❌ Invalid option.")
         return ConversationHandler.END
 
-    user = get_user(query.from_user.id)
-    if not user or user.credits <= 0:
+    credit_reserved = deduct_credit(query.from_user.id)
+    if not credit_reserved:
         await query.edit_message_text(
             "❌ You do not have enough credits for the full MP3.\n\n"
             "💎 Buy credits to unlock the full song.",
@@ -954,7 +955,6 @@ async def confirm_mp3(update: Update, context: ContextTypes.DEFAULT_TYPE):
             subtitle_timing = []
         context.user_data["subtitle_timing"] = subtitle_timing
 
-        deduct_credit(query.from_user.id)
         song_id = _save_lyrics_draft(context, query.from_user.id)
         if song_id:
             update_song_mp3(song_id, mp3_file)
@@ -992,6 +992,8 @@ async def confirm_mp3(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return CONFIRM_COVER
 
     except Exception as e:
+        if credit_reserved:
+            refund_credit(query.from_user.id)
         await stop_progress_message(
             progress_task,
             progress_stop,
@@ -1246,6 +1248,18 @@ async def confirm_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     context.user_data.pop("video_subtitle_prompt_pending", None)
 
+    subtitle_credit_reserved = False
+    if subtitles_enabled:
+        subtitle_credit_reserved = deduct_credit(query.from_user.id, minimum_credits=11)
+        if not subtitle_credit_reserved:
+            from app.handlers.buycredits import _buy_credits_menu_markup
+            await query.edit_message_text(
+                "❌ You need more than 10 credits to create a video with subtitles.\n\n"
+                "💎 Please add credits or create the video without subtitles.",
+                reply_markup=_buy_credits_menu_markup(query.from_user.id)
+            )
+            return BUY_CREDITS
+
     mp3_file = context.user_data["mp3_file"]
     cover_image = context.user_data["cover_image"]
     topic = context.user_data["topic"]
@@ -1325,7 +1339,6 @@ async def confirm_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         if subtitles_enabled:
-            deduct_credit(query.from_user.id)
             user = get_user(query.from_user.id)
 
         await context.bot.send_message(
@@ -1335,6 +1348,8 @@ async def confirm_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
         clear_flow_message_tracking(context, state_key="song_flow_message_id")
 
     except Exception as e:
+        if subtitle_credit_reserved:
+            refund_credit(query.from_user.id)
         await stop_progress_message(
             progress_task,
             progress_stop,

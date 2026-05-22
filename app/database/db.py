@@ -46,3 +46,16 @@ def migrate_db():
                 conn.execute(text(f"ALTER TABLE songs ADD COLUMN {col} {col_type}"))
                 conn.commit()
                 print(f"[DB] Added column: songs.{col}")
+
+        existing_indexes = {index["name"] for index in inspector.get_indexes("referral_rewards")}
+        unique_index_name = "uq_referral_rewards_inviter_milestone"
+        if unique_index_name not in existing_indexes:
+            conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS "
+                    "uq_referral_rewards_inviter_milestone "
+                    "ON referral_rewards (inviter_telegram_id, milestone)"
+                )
+            )
+            conn.commit()
+            print("[DB] Ensured unique index: referral_rewards(inviter_telegram_id, milestone)")
