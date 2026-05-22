@@ -57,7 +57,6 @@ from app.states.song_states import (
     CONFIRM_COVER,
     CONFIRM_MP3,
     CONFIRM_VIDEO,
-    CUSTOM_SONG_TYPE,
     DESCRIPTION,
     EDIT_LYRICS,
     LANGUAGE,
@@ -66,7 +65,6 @@ from app.states.song_states import (
     MUSIC_STYLE,
     PASTE_LYRICS,
     SINGER,
-    SONG_TYPE,
     TOPIC,
     UPLOAD_COVER,
 )
@@ -184,21 +182,6 @@ def _description_keyboard():
     ])
 
 
-def _song_type_keyboard():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("❤️ Love Song", callback_data="stype_love")],
-        [InlineKeyboardButton("🎂 Birthday Song", callback_data="stype_birthday")],
-        [InlineKeyboardButton("💍 Wedding Song", callback_data="stype_wedding")],
-        [InlineKeyboardButton("🥺 Sorry Song", callback_data="stype_sorry")],
-        [InlineKeyboardButton("👨‍👩‍👧 Parents Tribute", callback_data="stype_parents")],
-        [InlineKeyboardButton("🤝 Friendship Song", callback_data="stype_friendship")],
-        [InlineKeyboardButton("🎧 TikTok Remix", callback_data="stype_tiktok")],
-        [InlineKeyboardButton("💔 Sad Breakup", callback_data="stype_breakup")],
-        [InlineKeyboardButton("✍️ Custom", callback_data="stype_custom")],
-        [InlineKeyboardButton("❌ Cancel", callback_data="cancel_flow")],
-    ])
-
-
 def _music_style_keyboard():
     return InlineKeyboardMarkup([
         [
@@ -308,21 +291,6 @@ def _mood_keyboard(song_type_code):
 def _mood_examples_text(song_type_code):
     examples = [value for _, value in _suggested_moods(song_type_code)[:4]]
     return "\n".join(f"- {example}" for example in examples)
-
-
-def _song_type_label(song_type_code):
-    labels = {
-        "love": "Love Song",
-        "birthday": "Birthday Song",
-        "wedding": "Wedding Song",
-        "sorry": "Sorry Song",
-        "parents": "Parents Tribute",
-        "friendship": "Friendship Song",
-        "tiktok": "TikTok Remix",
-        "breakup": "Sad Breakup",
-        "custom": "Custom",
-    }
-    return labels.get(song_type_code, song_type_code or "Custom")
 
 
 def _lyrics_action_keyboard():
@@ -676,54 +644,6 @@ async def get_pasted_lyrics(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # -----------------------------
-# CHOOSE SONG TYPE
-# -----------------------------
-async def choose_song_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    query = update.callback_query
-    await _safe_answer(query)
-
-    song_type = (query.data or "").replace("stype_", "", 1)
-    context.user_data["song_type"] = song_type or "custom"
-
-    if context.user_data["song_type"] == "custom":
-        await query.edit_message_text(
-            "✍️ Custom Song\n\n"
-            "Type your song type or theme.\n\n"
-            "Examples:\n- Graduation Song\n- Motivation Song\n- Welcome Home Song\n- Prayer Song",
-        )
-        return CUSTOM_SONG_TYPE
-
-    song_type_label = _song_type_label(context.user_data["song_type"])
-    await query.edit_message_text(
-        f"🎵 Song Type: {song_type_label}\n\n"
-        f"😊 Choose a mood for the {song_type_label.lower()} or type your own.\n\n"
-        f"Examples:\n{_mood_examples_text(context.user_data['song_type'])}",
-        reply_markup=_mood_keyboard(context.user_data["song_type"]),
-    )
-    return MOOD
-
-
-async def get_custom_song_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    song_type, error_message = validate_topic(update.message.text)
-    if error_message:
-        await update.message.reply_text(error_message)
-        return CUSTOM_SONG_TYPE
-
-    context.user_data["song_type"] = song_type
-    await replace_flow_message(
-        context,
-        update.message.reply_text,
-        f"😊 Choose a mood for the {song_type.lower()} or type your own.\n\n"
-        f"Examples:\n{_mood_examples_text(song_type)}",
-        reply_markup=_mood_keyboard(song_type),
-        state_key="song_flow_message_id",
-    )
-    return MOOD
-
-
-# -----------------------------
 # GET MUSIC STYLE
 # -----------------------------
 async def get_music_style(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -737,11 +657,12 @@ async def get_music_style(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await replace_flow_message(
         context,
         update.message.reply_text,
-        "🎵 Choose Song Type",
-        reply_markup=_song_type_keyboard(),
+        "😊 Choose a mood or type your own.\n\n"
+        f"Examples:\n{_mood_examples_text('custom')}",
+        reply_markup=_mood_keyboard("custom"),
         state_key="song_flow_message_id",
     )
-    return SONG_TYPE
+    return MOOD
 
 
 async def choose_music_style(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -759,10 +680,11 @@ async def choose_music_style(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     context.user_data["style"] = callback_value
     await query.edit_message_text(
-        "🎵 Choose Song Type",
-        reply_markup=_song_type_keyboard(),
+        "😊 Choose a mood or type your own.\n\n"
+        f"Examples:\n{_mood_examples_text('custom')}",
+        reply_markup=_mood_keyboard("custom"),
     )
-    return SONG_TYPE
+    return MOOD
 
 
 # -----------------------------
@@ -1454,10 +1376,6 @@ song_handler = ConversationHandler(
             CallbackQueryHandler(pick_saved_lyrics, pattern=r"^lyr_pick_\d+$"),
             CallbackQueryHandler(cancel_flow_handler, pattern=r"^cancel_flow$")
         ],
-        SONG_TYPE: [
-            CallbackQueryHandler(choose_song_type, pattern=r"^stype_"),
-            CallbackQueryHandler(cancel_flow_handler, pattern=r"^cancel_flow$")
-        ],
         LANGUAGE: [
             CallbackQueryHandler(get_language, pattern=r"^lang_"),
             CallbackQueryHandler(cancel_flow_handler, pattern=r"^cancel_flow$")
@@ -1479,10 +1397,6 @@ song_handler = ConversationHandler(
         DESCRIPTION: [
             MessageHandler(filters.TEXT & ~filters.COMMAND, get_description),
             CallbackQueryHandler(skip_description, pattern=r"^desc_skip$"),
-            CallbackQueryHandler(cancel_flow_handler, pattern=r"^cancel_flow$")
-        ],
-        CUSTOM_SONG_TYPE: [
-            MessageHandler(filters.TEXT & ~filters.COMMAND, get_custom_song_type),
             CallbackQueryHandler(cancel_flow_handler, pattern=r"^cancel_flow$")
         ],
         PASTE_LYRICS: [
