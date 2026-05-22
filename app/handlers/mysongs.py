@@ -137,6 +137,21 @@ def _friendly_mp3_error_message(error):
     return f"Error generating MP3:\n{error_text}"
 
 
+def _animation_style_keyboard(song_id):
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🌊 Pan Motion", callback_data=f"ms_vidstyle_pan_{song_id}")],
+        [InlineKeyboardButton("💓 Beat Pulse", callback_data=f"ms_vidstyle_pulse_{song_id}")],
+        [InlineKeyboardButton("✨ Pan + Pulse", callback_data=f"ms_vidstyle_pan_pulse_{song_id}")],
+    ])
+
+
+def _video_subtitle_keyboard(song_id):
+    return InlineKeyboardMarkup([[
+        InlineKeyboardButton("✅ Yes", callback_data=f"ms_vid_yes_{song_id}"),
+        InlineKeyboardButton("❌ No", callback_data=f"ms_vid_no_{song_id}"),
+    ]])
+
+
 def _cover_source_keyboard(song_id):
     return InlineKeyboardMarkup([
         [
@@ -520,23 +535,50 @@ async def ms_prompt_video_animation_choice(update: Update, context: ContextTypes
     query = update.callback_query
     await _safe_answer(query)
 
-    choice = query.data.split("_")[2]
-    song_id = int(query.data.split("_")[3])
+    parts = query.data.split("_")
+    choice = parts[2]
+    song_id = int(parts[3])
     song = get_song_by_id(song_id)
 
     if not song:
         await context.bot.send_message(chat_id=query.message.chat_id, text="Song not found.")
         return
 
-    context.user_data["ms_video_animation_style"] = "pan_pulse" if choice == "yes" else "none"
+    if choice == "yes":
+        await query.edit_message_text(
+            "Choose the animation style for your video:",
+            reply_markup=_animation_style_keyboard(song.id)
+        )
+        return
+
+    context.user_data["ms_video_animation_style"] = "none"
 
     await query.edit_message_text(
         "Step 2 of 2: Do you want to add subtitles to the video?\n\n"
         "Subtitles use extra credits.",
-        reply_markup=InlineKeyboardMarkup([[
-            InlineKeyboardButton("✅ Yes", callback_data=f"ms_vid_yes_{song.id}"),
-            InlineKeyboardButton("❌ No", callback_data=f"ms_vid_no_{song.id}"),
-        ]])
+        reply_markup=_video_subtitle_keyboard(song.id)
+    )
+
+
+async def ms_prompt_video_subtitle_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await _safe_answer(query)
+
+    parts = query.data.split("_")
+    animation_style = parts[2]
+    song_id = int(parts[3])
+    song = get_song_by_id(song_id)
+
+    if not song:
+        await context.bot.send_message(chat_id=query.message.chat_id, text="Song not found.")
+        return
+
+    context.user_data["ms_video_animation_style"] = animation_style
+
+    await query.edit_message_text(
+        "Step 2 of 2: Do you want to add subtitles to the video?\n\n"
+        "Subtitles use extra credits.",
+        reply_markup=_video_subtitle_keyboard(song.id)
     )
 
 
@@ -1209,6 +1251,7 @@ ms_cov_handler = CallbackQueryHandler(ms_gen_cover, pattern=r"^ms_cov_\d+$")
 ms_cov_upload_handler = CallbackQueryHandler(ms_upload_cover, pattern=r"^ms_cov_upload_\d+$")
 ms_vid_handler = CallbackQueryHandler(ms_prompt_video_subtitles, pattern=r"^ms_vid_prompt_\d+$")
 ms_vid_animation_handler = CallbackQueryHandler(ms_prompt_video_animation_choice, pattern=r"^ms_vidanim_(yes|no)_\d+$")
+ms_vid_style_handler = CallbackQueryHandler(ms_prompt_video_subtitle_choice, pattern=r"^ms_vidstyle_(pan|pulse|pan_pulse)_\d+$")
 ms_vid_choice_handler = CallbackQueryHandler(ms_gen_video, pattern=r"^ms_vid_(yes|no)_\d+$")
 ms_skip_handler = CallbackQueryHandler(ms_skip, pattern=r"^ms_skip_\d+$")
 ms_uploaded_cover_handler = MessageHandler(filters.PHOTO, ms_receive_uploaded_cover)

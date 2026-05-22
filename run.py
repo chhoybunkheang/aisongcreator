@@ -107,6 +107,7 @@ def main():
         ms_vid_animation_handler,
         ms_vid_choice_handler,
         ms_vid_handler,
+        ms_vid_style_handler,
         mylyrics_handler,
         mymp3_handler,
         mymp4_handler,
@@ -180,6 +181,7 @@ def main():
     app.add_handler(ms_cov_upload_handler)
     app.add_handler(ms_vid_handler)
     app.add_handler(ms_vid_animation_handler)
+    app.add_handler(ms_vid_style_handler)
     app.add_handler(ms_vid_choice_handler)
     app.add_handler(ms_skip_handler)
     app.add_handler(mp3_actions_handler)
