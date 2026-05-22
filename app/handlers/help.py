@@ -541,6 +541,6 @@ settings_action_handler = CallbackQueryHandler(settings_action, pattern=r"^setti
 
 # Place this after all function/class definitions
 settings_text_handler = MessageHandler(
-    filters.TEXT & ~filters.COMMAND,
+    filters.TEXT & ~filters.COMMAND & filters.User(user_id=ADMIN_ID) & filters.Regex(r"^\d+$"),
     settings_action
 )
