@@ -9,6 +9,7 @@ from telegram.ext import CallbackQueryHandler, ContextTypes, MessageHandler, fil
 from app.config.settings import ADMIN_ID
 from app.database.queries import (
     DEFAULT_SONG_LANGUAGES,
+    add_credits,
     delete_payment_qr_file_id,
     delete_song_lyrics,
     delete_song_mp3,
@@ -38,13 +39,21 @@ def _settings_menu_keyboard_for_user(is_admin):
 
     if is_admin:
         rows.append([
-            InlineKeyboardButton("💎 Credit Status", callback_data="settings_credit_status")
+              InlineKeyboardButton("💎 Credits", callback_data="settings_credits")
         ])
         rows.append([InlineKeyboardButton("👥 Users", callback_data="settings_users")])
         rows.append([InlineKeyboardButton("🌍 Languages", callback_data="settings_languages")])
         rows.append([InlineKeyboardButton("📷 QR Payment", callback_data="settings_payment")])
 
     return InlineKeyboardMarkup(rows)
+
+
+def _settings_credits_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("💎 Admin's Credit", callback_data="settings_credit_admin")],
+        [InlineKeyboardButton("👤 User's Credit", callback_data="settings_credit_users")],
+        [InlineKeyboardButton("⬅️ Back", callback_data="settings_back")],
+    ])
 
 
 def _settings_delete_keyboard():
@@ -114,6 +123,90 @@ def _settings_users_chunks(user_summaries):
 
     chunks.append(current_chunk)
     return chunks
+
+
+def _settings_credit_target_keyboard(user_summaries):
+    rows = [[InlineKeyboardButton("🌐 All Users", callback_data="settings_credit_target_all")]]
+
+    for user_summary in user_summaries:
+        label = f"{user_summary['name']} ({user_summary['telegram_id']})"
+        if len(label) > 60:
+            label = label[:57] + "..."
+        rows.append([
+            InlineKeyboardButton(
+                label,
+                callback_data=f"settings_credit_target_user_{user_summary['telegram_id']}"
+            )
+        ])
+
+    rows.append([InlineKeyboardButton("⬅️ Back", callback_data="settings_credits")])
+    return InlineKeyboardMarkup(rows)
+
+
+def _settings_credit_action_keyboard(target_type, target_label):
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("💎 Add/Deduct Credits", callback_data=f"settings_credit_action_{target_type}")],
+        [InlineKeyboardButton(f"⬅️ Back To {target_label}", callback_data="settings_credit_users")],
+    ])
+
+
+def _settings_user_credit_target_text(target_name, target_id, current_credits=None):
+    credits_line = f"Current credits: {current_credits}\n\n" if current_credits is not None else ""
+    return (
+        "👤 User Credit Management\n\n"
+        f"Selected user: {target_name}\n"
+        f"Telegram ID: {target_id}\n\n"
+        f"{credits_line}"
+        "Tap the button below to update credits."
+    )
+
+
+def _settings_all_users_credit_text(user_count):
+    return (
+        "🌐 All Users Credit Management\n\n"
+        f"Selected target: All users ({user_count})\n\n"
+        "Tap the button below to update credits."
+    )
+
+
+def _apply_credit_change(target_scope, amount, user_data):
+    if target_scope == "admin":
+        return 1 if set_credits(ADMIN_ID, amount) else 0
+
+    if target_scope == "all":
+        changed_count = 0
+        for user_summary in get_all_user_summaries():
+            telegram_id = user_summary["telegram_id"]
+            if user_data.get("settings_credit_operation") == "add":
+                if add_credits(telegram_id, amount):
+                    changed_count += 1
+                continue
+
+            current_credits = int(user_summary.get("credits", 0) or 0)
+            new_credits = max(current_credits - amount, 0)
+            if set_credits(telegram_id, new_credits):
+                changed_count += 1
+        return changed_count
+
+    target_user_id = user_data.get("settings_credit_target_id")
+    target_user = get_user(target_user_id)
+    if not target_user:
+        return 0
+
+    if user_data.get("settings_credit_operation") == "add":
+        return 1 if add_credits(target_user_id, amount) else 0
+
+    current_credits = int(getattr(target_user, "credits", 0) or 0)
+    new_credits = max(current_credits - amount, 0)
+    return 1 if set_credits(target_user_id, new_credits) else 0
+
+
+def _clear_credit_settings_state(user_data):
+    user_data.pop("settings_waiting_for_credit_amount", None)
+    user_data.pop("settings_credit_scope", None)
+    user_data.pop("settings_credit_target_id", None)
+    user_data.pop("settings_credit_target_name", None)
+    user_data.pop("settings_credit_operation", None)
 
 
 def _language_flag(language):
@@ -229,13 +322,56 @@ async def settings_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ):
             print(f"[DEBUG] Received credit input: '{message.text}' user_data: {user_data}")
             text = (message.text or "").strip()
-            if text.isdigit():
+            try:
                 amount = int(text)
-                set_credits(ADMIN_ID, amount)
-                await message.reply_text(f"✅ Admin credits set to {amount}.")
-                user_data.pop("settings_waiting_for_credit_amount", None)
-            else:
-                await message.reply_text("❌ Please enter a valid number (digits only). Try again:")
+            except ValueError:
+                await message.reply_text("❌ Please enter a valid number. Use -number to deduct. Try again:")
+                return
+
+            credit_scope = user_data.get("settings_credit_scope")
+
+            if credit_scope == "admin" and amount < 0:
+                await message.reply_text("❌ Admin credit must be 0 or higher. Try again:")
+                return
+
+            if credit_scope in {"user", "all"} and amount < 0:
+                user_data["settings_credit_operation"] = "deduct"
+                amount = abs(amount)
+
+            if credit_scope == "admin":
+                changed_count = _apply_credit_change("admin", amount, user_data)
+                if changed_count:
+                    await message.reply_text(f"✅ Admin credits set to {amount}.")
+                else:
+                    await message.reply_text("❌ Could not update admin credits.")
+                _clear_credit_settings_state(user_data)
+                return
+
+            if credit_scope in {"user", "all"}:
+                changed_count = _apply_credit_change(credit_scope, amount, user_data)
+                operation = user_data.get("settings_credit_operation")
+                if not changed_count:
+                    await message.reply_text("❌ Could not update credits for the selected target.")
+                    _clear_credit_settings_state(user_data)
+                    return
+
+                if credit_scope == "all":
+                    action_text = "added to" if operation == "add" else "deducted from"
+                    await message.reply_text(
+                        f"✅ {amount} credits {action_text} {changed_count} user(s)."
+                    )
+                else:
+                    target_name = user_data.get("settings_credit_target_name", "Selected user")
+                    action_text = "added to" if operation == "add" else "deducted from"
+                    await message.reply_text(
+                        f"✅ {amount} credits {action_text} {target_name}."
+                    )
+                _clear_credit_settings_state(user_data)
+                return
+
+            await message.reply_text("❌ Credit action is not selected. Please open Settings again.")
+            _clear_credit_settings_state(user_data)
+            return
         return
 
     if user_data is None or query.from_user is None:
@@ -246,18 +382,135 @@ async def settings_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     is_admin = telegram_id == ADMIN_ID
     query_data = query.data or ""
 
-    # Admin credit status and set prompt
-    if is_admin and query_data == "settings_credit_status":
+    if query_data == "settings_credits":
+        if not is_admin:
+            await query.answer("Admin only.", show_alert=True)
+            return
+
         await query.answer()
+        _clear_credit_settings_state(user_data)
+        await query.edit_message_text(
+            "💎 Credits\n\nChoose what you want to manage:",
+            reply_markup=_settings_credits_keyboard()
+        )
+        return
+
+    if is_admin and query_data == "settings_credit_admin":
+        await query.answer()
+        _clear_credit_settings_state(user_data)
         admin_user = get_user(ADMIN_ID)
         current_credits = admin_user.credits if admin_user else 0
         await query.edit_message_text(
-            f"💎 Admin Credit Status\n\nCurrent credits: {current_credits}\n\nEnter a new credit amount to set:",
+            f"💎 Admin Credit\n\nCurrent credits: {current_credits}\n\nEnter a new credit amount to set:",
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("⬅️ Back", callback_data="settings_back")]
+                [InlineKeyboardButton("⬅️ Back", callback_data="settings_credits")]
             ])
         )
+        user_data["settings_credit_scope"] = "admin"
         user_data["settings_waiting_for_credit_amount"] = True
+        return
+
+    if query_data == "settings_credit_users":
+        if not is_admin:
+            await query.answer("Admin only.", show_alert=True)
+            return
+
+        await query.answer()
+        _clear_credit_settings_state(user_data)
+        user_summaries = get_all_user_summaries()
+        await query.edit_message_text(
+            "👤 User Credits\n\nChoose one user or All Users:",
+            reply_markup=_settings_credit_target_keyboard(user_summaries)
+        )
+        return
+
+    if query_data == "settings_credit_target_all":
+        if not is_admin:
+            await query.answer("Admin only.", show_alert=True)
+            return
+
+        await query.answer()
+        _clear_credit_settings_state(user_data)
+        user_data["settings_credit_scope"] = "all"
+        user_count = len(get_all_user_summaries())
+        await query.edit_message_text(
+            _settings_all_users_credit_text(user_count),
+            reply_markup=_settings_credit_action_keyboard("all", "User Credits")
+        )
+        return
+
+    if query_data.startswith("settings_credit_target_user_"):
+        if not is_admin:
+            await query.answer("Admin only.", show_alert=True)
+            return
+
+        await query.answer()
+        _clear_credit_settings_state(user_data)
+        target_user_id = query_data.rsplit("_", 1)[1]
+        target_user = get_user(target_user_id)
+        if not target_user:
+            await query.edit_message_text(
+                "❌ User not found.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("⬅️ Back", callback_data="settings_credit_users")],
+                ])
+            )
+            return
+
+        user_data["settings_credit_scope"] = "user"
+        user_data["settings_credit_target_id"] = str(target_user_id)
+        user_data["settings_credit_target_name"] = target_user.name or "Unknown"
+        await query.edit_message_text(
+            _settings_user_credit_target_text(
+                user_data["settings_credit_target_name"],
+                target_user_id,
+                current_credits=target_user.credits or 0,
+            ),
+            reply_markup=_settings_credit_action_keyboard("user", "User Credits")
+        )
+        return
+
+    if query_data.startswith("settings_credit_action_"):
+        if not is_admin:
+            await query.answer("Admin only.", show_alert=True)
+            return
+
+        await query.answer()
+        target_scope = query_data.rsplit("_", 1)[1]
+        if target_scope not in {"user", "all"}:
+            await query.edit_message_text(
+                "❌ Invalid credit action.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("⬅️ Back", callback_data="settings_credits")],
+                ])
+            )
+            return
+
+        if target_scope == "user" and not user_data.get("settings_credit_target_id"):
+            await query.edit_message_text(
+                "❌ No user selected.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("⬅️ Back", callback_data="settings_credit_users")],
+                ])
+            )
+            return
+
+        user_data["settings_credit_scope"] = target_scope
+        user_data["settings_credit_operation"] = "add"
+        user_data["settings_waiting_for_credit_amount"] = True
+        target_text = (
+            f"all users ({len(get_all_user_summaries())})"
+            if target_scope == "all"
+            else f"{user_data.get('settings_credit_target_name', 'selected user')} ({user_data.get('settings_credit_target_id', '')})"
+        )
+        await query.edit_message_text(
+            f"💎 User Credits\n\n"
+            f"Selected target: {target_text}.\n\n"
+            "Enter the credit amount. Positive adds credits, negative deducts credits:",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("⬅️ Back", callback_data="settings_credit_users")],
+            ])
+        )
         return
 
     if query_data == "settings_users":
@@ -266,7 +519,7 @@ async def settings_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         await query.answer()
-        user_data.pop("settings_waiting_for_credit_amount", None)
+        _clear_credit_settings_state(user_data)
         user_chunks = _settings_users_chunks(get_all_user_summaries())
         await query.edit_message_text(
             user_chunks[0],
@@ -285,7 +538,7 @@ async def settings_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if query_data == "settings_back":
         await query.answer()
         user_data.pop("payment_qr_package", None)
-        user_data.pop("settings_waiting_for_credit_amount", None)
+        _clear_credit_settings_state(user_data)
         await query.edit_message_text(
             "⚙️ Settings\n\nChoose an option:",
             reply_markup=_settings_menu_keyboard_for_user(is_admin)
@@ -541,6 +794,6 @@ settings_action_handler = CallbackQueryHandler(settings_action, pattern=r"^setti
 
 # Place this after all function/class definitions
 settings_text_handler = MessageHandler(
-    filters.TEXT & ~filters.COMMAND & filters.User(user_id=ADMIN_ID) & filters.Regex(r"^\d+$"),
+    filters.TEXT & ~filters.COMMAND & filters.User(user_id=ADMIN_ID) & filters.Regex(r"^-?\d+$"),
     settings_action
 )
