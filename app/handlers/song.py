@@ -1166,7 +1166,13 @@ async def choose_cover_source(update: Update, context: ContextTypes.DEFAULT_TYPE
             context,
             context.bot.send_message,
             chat_id=query.message.chat_id,
-            text="🎬 Do you want to create a music video?",
+            text=(
+                f"Your cover for \"{topic}\" is ready.\n\n"
+                "Next you will choose:\n"
+                "1. Animation or no animation\n"
+                "2. Subtitles or no subtitles\n\n"
+                "Create video now?"
+            ),
             reply_markup=_yes_no_keyboard(),
             state_key="song_flow_message_id",
         )
@@ -1221,7 +1227,13 @@ async def receive_uploaded_cover(update: Update, context: ContextTypes.DEFAULT_T
         context,
         context.bot.send_message,
         chat_id=update.effective_chat.id,
-        text="🎬 Do you want to create a music video?",
+        text=(
+            f"Your cover for \"{context.user_data.get('topic', 'your song')}\" is ready.\n\n"
+            "Next you will choose:\n"
+            "1. Animation or no animation\n"
+            "2. Subtitles or no subtitles\n\n"
+            "Create video now?"
+        ),
         reply_markup=_yes_no_keyboard(),
         state_key="song_flow_message_id",
     )
@@ -1285,7 +1297,7 @@ async def confirm_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
         animation_style = animation_map.get(query.data)
         if not animation_style:
             await query.edit_message_text(
-                "🎞 Choose the animation style for your video:",
+                "Choose the animation style for your video:",
                 reply_markup=_animation_style_keyboard()
             )
             return CONFIRM_VIDEO

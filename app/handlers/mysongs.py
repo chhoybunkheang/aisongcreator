@@ -565,7 +565,7 @@ async def ms_gen_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
             chat_id=query.message.chat_id,
             text=(
                 "❌ You need more than 10 credits to create a video with subtitles.\n\n"
-                "💎 Please add credit or create the video without subtitles."
+                "💎 Please add credits or create the video without subtitles."
             )
         )
         return
