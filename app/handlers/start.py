@@ -7,6 +7,7 @@ from app.database.queries import (
     register_referral_start,
 )
 from app.keyboards.main_menu import get_main_menu
+from app.keyboards.inline_buttons import get_create_song_inline_keyboard
 from app.utils.helpers import replace_flow_message, safe_delete_message
 
 
@@ -73,6 +74,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Choose an option below:",
         reply_markup=get_main_menu(),
         state_key="start_flow_message_id",
+    )
+
+    # Send the inline 'Create Song' button below the main menu
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text="Or tap below to create a song:",
+        reply_markup=get_create_song_inline_keyboard(),
     )
 
     await safe_delete_message(message)
