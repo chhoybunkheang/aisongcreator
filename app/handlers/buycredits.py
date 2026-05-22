@@ -103,7 +103,7 @@ async def _free_credits_text(context, telegram_id):
 def _free_credits_button_label(telegram_id):
     progress = get_referral_progress(telegram_id)
     return (
-        f"🎁 Invite 2 Friends +2 Credits "
+        f"🎁 2 Credits - Free "
         f"({progress['current_cycle_count']}/{progress['invites_per_reward']})"
     )
 
