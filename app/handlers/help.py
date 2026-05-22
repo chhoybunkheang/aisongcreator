@@ -169,36 +169,75 @@ def _settings_all_users_credit_text(user_count):
     )
 
 
+def _credit_operation_text(operation):
+    return "added" if operation == "add" else "deducted"
+
+
+async def _notify_credit_change(bot, telegram_id, amount, operation, new_balance):
+    await bot.send_message(
+        chat_id=telegram_id,
+        text=(
+            f"💎 Credit Update\n\n"
+            f"{amount} credits were {_credit_operation_text(operation)} by admin.\n"
+            f"Current balance: {new_balance}"
+        )
+    )
+
+
 def _apply_credit_change(target_scope, amount, user_data):
     if target_scope == "admin":
-        return 1 if set_credits(ADMIN_ID, amount) else 0
+        if not set_credits(ADMIN_ID, amount):
+            return []
+        admin_user = get_user(ADMIN_ID)
+        return [{
+            "telegram_id": str(ADMIN_ID),
+            "credits": int(getattr(admin_user, "credits", amount) or amount),
+        }]
 
     if target_scope == "all":
-        changed_count = 0
+        updated_users = []
         for user_summary in get_all_user_summaries():
             telegram_id = user_summary["telegram_id"]
             if user_data.get("settings_credit_operation") == "add":
                 if add_credits(telegram_id, amount):
-                    changed_count += 1
+                    updated_user = get_user(telegram_id)
+                    updated_users.append({
+                        "telegram_id": str(telegram_id),
+                        "credits": int(getattr(updated_user, "credits", 0) or 0),
+                    })
                 continue
 
             current_credits = int(user_summary.get("credits", 0) or 0)
             new_credits = max(current_credits - amount, 0)
             if set_credits(telegram_id, new_credits):
-                changed_count += 1
-        return changed_count
+                updated_users.append({
+                    "telegram_id": str(telegram_id),
+                    "credits": new_credits,
+                })
+        return updated_users
 
     target_user_id = user_data.get("settings_credit_target_id")
     target_user = get_user(target_user_id)
     if not target_user:
-        return 0
+        return []
 
     if user_data.get("settings_credit_operation") == "add":
-        return 1 if add_credits(target_user_id, amount) else 0
+        if not add_credits(target_user_id, amount):
+            return []
+        updated_user = get_user(target_user_id)
+        return [{
+            "telegram_id": str(target_user_id),
+            "credits": int(getattr(updated_user, "credits", 0) or 0),
+        }]
 
     current_credits = int(getattr(target_user, "credits", 0) or 0)
     new_credits = max(current_credits - amount, 0)
-    return 1 if set_credits(target_user_id, new_credits) else 0
+    if not set_credits(target_user_id, new_credits):
+        return []
+    return [{
+        "telegram_id": str(target_user_id),
+        "credits": new_credits,
+    }]
 
 
 def _clear_credit_settings_state(user_data):
@@ -339,8 +378,8 @@ async def settings_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 amount = abs(amount)
 
             if credit_scope == "admin":
-                changed_count = _apply_credit_change("admin", amount, user_data)
-                if changed_count:
+                updated_users = _apply_credit_change("admin", amount, user_data)
+                if updated_users:
                     await message.reply_text(f"✅ Admin credits set to {amount}.")
                 else:
                     await message.reply_text("❌ Could not update admin credits.")
@@ -348,17 +387,32 @@ async def settings_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
 
             if credit_scope in {"user", "all"}:
-                changed_count = _apply_credit_change(credit_scope, amount, user_data)
+                updated_users = _apply_credit_change(credit_scope, amount, user_data)
                 operation = user_data.get("settings_credit_operation")
-                if not changed_count:
+                if not updated_users:
                     await message.reply_text("❌ Could not update credits for the selected target.")
                     _clear_credit_settings_state(user_data)
                     return
 
+                for updated_user in updated_users:
+                    try:
+                        await _notify_credit_change(
+                            context.bot,
+                            updated_user["telegram_id"],
+                            amount,
+                            operation,
+                            updated_user["credits"],
+                        )
+                    except Exception as notification_error:
+                        print(
+                            f"[WARN] Failed to send credit update notification to "
+                            f"{updated_user['telegram_id']}: {notification_error}"
+                        )
+
                 if credit_scope == "all":
                     action_text = "added to" if operation == "add" else "deducted from"
                     await message.reply_text(
-                        f"✅ {amount} credits {action_text} {changed_count} user(s)."
+                        f"✅ {amount} credits {action_text} {len(updated_users)} user(s)."
                     )
                 else:
                     target_name = user_data.get("settings_credit_target_name", "Selected user")
