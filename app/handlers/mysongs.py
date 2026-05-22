@@ -508,6 +508,29 @@ async def ms_prompt_video_subtitles(update: Update, context: ContextTypes.DEFAUL
         return
 
     await query.edit_message_text(
+        "Do you want animation in the video?",
+        reply_markup=InlineKeyboardMarkup([[
+            InlineKeyboardButton("✨ Yes", callback_data=f"ms_vidanim_yes_{song.id}"),
+            InlineKeyboardButton("🖼 No", callback_data=f"ms_vidanim_no_{song.id}"),
+        ]])
+    )
+
+
+async def ms_prompt_video_animation_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await _safe_answer(query)
+
+    choice = query.data.split("_")[2]
+    song_id = int(query.data.split("_")[3])
+    song = get_song_by_id(song_id)
+
+    if not song:
+        await context.bot.send_message(chat_id=query.message.chat_id, text="Song not found.")
+        return
+
+    context.user_data["ms_video_animation_style"] = "pan_pulse" if choice == "yes" else "none"
+
+    await query.edit_message_text(
         "Do you want to add subtitles to the video?",
         reply_markup=InlineKeyboardMarkup([[
             InlineKeyboardButton("✅ Yes", callback_data=f"ms_vid_yes_{song.id}"),
@@ -547,6 +570,7 @@ async def ms_gen_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     subtitles_enabled = choice == "yes"
+    animation_style = context.user_data.pop("ms_video_animation_style", "none")
     await query.edit_message_text(
         "Generating subtitles...\nPreparing request..."
         if subtitles_enabled and song.lyrics and song.mp3_path
@@ -588,6 +612,7 @@ async def ms_gen_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
             audio_path=song.mp3_path,
             image_path=song.cover_path,
             output_path=video_path,
+            animation_style=animation_style,
             lyrics=song.lyrics,
             subtitle_timing=subtitle_timing,
             subtitles_enabled=subtitles_enabled,
@@ -1178,6 +1203,7 @@ ms_mp3_handler = CallbackQueryHandler(ms_gen_mp3, pattern=r"^ms_mp3_\d+$")
 ms_cov_handler = CallbackQueryHandler(ms_gen_cover, pattern=r"^ms_cov_\d+$")
 ms_cov_upload_handler = CallbackQueryHandler(ms_upload_cover, pattern=r"^ms_cov_upload_\d+$")
 ms_vid_handler = CallbackQueryHandler(ms_prompt_video_subtitles, pattern=r"^ms_vid_prompt_\d+$")
+ms_vid_animation_handler = CallbackQueryHandler(ms_prompt_video_animation_choice, pattern=r"^ms_vidanim_(yes|no)_\d+$")
 ms_vid_choice_handler = CallbackQueryHandler(ms_gen_video, pattern=r"^ms_vid_(yes|no)_\d+$")
 ms_skip_handler = CallbackQueryHandler(ms_skip, pattern=r"^ms_skip_\d+$")
 ms_uploaded_cover_handler = MessageHandler(filters.PHOTO, ms_receive_uploaded_cover)

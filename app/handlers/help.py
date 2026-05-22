@@ -210,7 +210,6 @@ async def settings_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_data is None or query.from_user is None:
         return
 
-    await query.answer()
     chat = update.effective_chat
     telegram_id = query.from_user.id
     is_admin = telegram_id == ADMIN_ID
@@ -218,6 +217,7 @@ async def settings_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Admin credit status and set prompt
     if is_admin and query_data == "settings_credit_status":
+        await query.answer()
         admin_user = get_user(ADMIN_ID)
         current_credits = admin_user.credits if admin_user else 0
         await query.edit_message_text(
@@ -230,6 +230,7 @@ async def settings_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if query_data == "settings_back":
+        await query.answer()
         user_data.pop("payment_qr_package", None)
         await query.edit_message_text(
             "⚙️ Settings\n\nChoose an option:",
@@ -238,6 +239,7 @@ async def settings_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if query_data == "settings_info":
+        await query.answer()
         user = get_user(telegram_id)
         try:
             await query.edit_message_text(
@@ -260,6 +262,7 @@ async def settings_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if query_data == "settings_delete":
+        await query.answer()
         await query.edit_message_text(
             "🗑 Delete\n\nChoose what you want to delete:",
             reply_markup=_settings_delete_keyboard()
@@ -267,6 +270,7 @@ async def settings_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if query_data == "settings_reset":
+        await query.answer()
         await query.edit_message_text(
             "♻️ Reset\n\nThis will delete all your lyrics, MP3, and MP4 data.",
             reply_markup=_settings_reset_keyboard()
@@ -278,6 +282,7 @@ async def settings_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.answer("Admin only.", show_alert=True)
             return
 
+        await query.answer()
         enabled_languages = get_enabled_song_languages()
         await query.edit_message_text(
             "🌍 Visible Song Languages\n\nChoose which languages users can see in Create Song:",
@@ -290,6 +295,7 @@ async def settings_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.answer("Admin only.", show_alert=True)
             return
 
+        await query.answer()
         user_data.pop("payment_qr_package", None)
         qr_file_ids = get_payment_qr_file_ids()
         await query.edit_message_text(
@@ -303,6 +309,7 @@ async def settings_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.answer("Admin only.", show_alert=True)
             return
 
+        await query.answer()
         package_credits = int(query_data.rsplit("_", 1)[1])
         user_data["payment_qr_package"] = package_credits
         qr_file_ids = get_payment_qr_file_ids()
@@ -319,6 +326,7 @@ async def settings_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.answer("Admin only.", show_alert=True)
             return
 
+        await query.answer()
         package_credits = int(query_data.rsplit("_", 1)[1])
         user_data["payment_qr_package"] = package_credits
         await query.edit_message_text(
@@ -341,6 +349,7 @@ async def settings_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.answer("No QR image saved for this package.", show_alert=True)
             return
 
+        await query.answer()
         if chat is None:
             return
 
@@ -361,6 +370,7 @@ async def settings_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.answer("Admin only.", show_alert=True)
             return
 
+        await query.answer()
         package_credits = int(query_data.rsplit("_", 1)[1])
         deleted = delete_payment_qr_file_id(package_credits)
         await query.edit_message_text(
@@ -388,6 +398,7 @@ async def settings_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             enabled_languages.append(selected_language)
 
+        await query.answer()
         ordered_languages = [
             language for language in DEFAULT_SONG_LANGUAGES
             if language in enabled_languages
@@ -401,6 +412,7 @@ async def settings_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if query_data in {"settings_delete_lyrics", "settings_delete_mp3", "settings_delete_mp4"}:
         try:
+            await query.answer()
             item_type = query_data.replace("settings_delete_", "")
             items = _deletable_items(telegram_id, item_type)
             print(f"[DEBUG] settings_action: delete {item_type}, items={items}")
@@ -427,6 +439,7 @@ async def settings_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
     if query_data.startswith("settings_delete_item_"):
+        await query.answer()
         _, _, _, item_type, song_id = query_data.split("_", 4)
         song_id = int(song_id)
 
@@ -452,6 +465,7 @@ async def settings_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if query.data == "settings_reset_confirm":
+        await query.answer()
         deleted_count = reset_user_song_data(telegram_id)
         await query.edit_message_text(
             f"✅ Reset complete. Deleted {deleted_count} song record(s) and related media.",
