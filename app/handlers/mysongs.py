@@ -76,7 +76,11 @@ def _mp3_caption(title):
 
 def _video_caption(title, subtitles_enabled=False):
     suffix = " (with subtitles)" if subtitles_enabled else ""
-    return f"🎬 Title: {title}{suffix}\nCreated by: {BOT_USERNAME_LABEL}"
+    return (
+        f"🎬 Title: {title}{suffix}\n"
+        f"Created by: {BOT_USERNAME_LABEL}\n"
+        f"Create your own AI music video with {BOT_USERNAME_LABEL}."
+    )
 
 
 def _language_flag(language):

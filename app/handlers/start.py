@@ -3,6 +3,7 @@ from telegram.ext import CommandHandler, ContextTypes
 
 from app.database.queries import (
     create_user,
+    get_referral_progress,
     get_user,
     register_referral_start,
 )
@@ -66,12 +67,19 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"\n🎁 Referral reward unlocked: +{referral_result['granted_credits']} credits to your inviter.\n"
         )
 
+    referral_progress = get_referral_progress(telegram_id)
+    remaining_invites = referral_progress["invites_per_reward"] - referral_progress["current_cycle_count"]
+    if remaining_invites <= 0:
+        remaining_invites = referral_progress["invites_per_reward"]
+    invite_prompt = f"Invite {remaining_invites} more friends to unlock 2 credits."
+
     await replace_flow_message(
         context,
         message.reply_text,
         f"🎵 Welcome to AI Song Bot!\n\n"
         f"{referred_user_message}"
         f"Start here with {user.credits} full song credit.\n\n"
+        f"🎁 {invite_prompt}\n\n"
         f"{referral_message}"
         f"💎 Full song credits: {user.credits}\n\n"
         f"Choose an option below:",

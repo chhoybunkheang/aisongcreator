@@ -80,10 +80,10 @@ async def _free_credits_text(context, telegram_id):
     lines = [
         "🎁 Free 2 Credits",
         "",
-        "Invite 5 new users.",
+        "Invite 2 new users.",
         "Use the Share Link button below to invite new users.",
         "Each invited user must open the bot and tap /start using your link.",
-        "Every 5 new users gives you 2 more credits.",
+        "Every 2 new users gives you 2 more credits.",
         "",
         f"Progress: {progress['current_cycle_count']}/{progress['invites_per_reward']} toward next reward",
         f"Total invited users: {progress['invite_count']}",
@@ -103,7 +103,7 @@ async def _free_credits_text(context, telegram_id):
 def _free_credits_button_label(telegram_id):
     progress = get_referral_progress(telegram_id)
     return (
-        f"🎁 2 Credits - Free "
+        f"🎁 Invite 2 Friends +2 Credits "
         f"({progress['current_cycle_count']}/{progress['invites_per_reward']})"
     )
 
