@@ -1529,5 +1529,6 @@ song_handler = ConversationHandler(
             ),
         ],
     },
-    fallbacks=[CallbackQueryHandler(cancel_flow_handler, pattern=r"^cancel_flow$")]
+    fallbacks=[CallbackQueryHandler(cancel_flow_handler, pattern=r"^cancel_flow$")],
+    allow_reentry=True,
 )
