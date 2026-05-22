@@ -572,13 +572,11 @@ async def choose_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if query.data == "type_new":
         user_data.clear()
         user_data["description"] = ""
-        user_data["song_type"] = "custom"
         chat_data["song_flow_message_id"] = query.message.message_id
         await query.edit_message_text(
-            "🎵 Choose Song Type",
-            reply_markup=_song_type_keyboard(),
+            "📝 What is the song title?",
         )
-        return SONG_TYPE
+        return TOPIC
 
     if query.data == "type_paste":
         user_data.clear()
@@ -671,12 +669,10 @@ async def get_pasted_lyrics(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await replace_flow_message(
         context,
         update.message.reply_text,
-        "🎼 Choose a music style or type your own.\n\n"
-        "Examples:\n- Remix\n- Rap\n- Romantic\n- Sad Song",
-        reply_markup=_music_style_keyboard(),
+        "📝 What is the song title?",
         state_key="song_flow_message_id",
     )
-    return MUSIC_STYLE
+    return TOPIC
 
 
 # -----------------------------
@@ -701,11 +697,11 @@ async def choose_song_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
     song_type_label = _song_type_label(context.user_data["song_type"])
     await query.edit_message_text(
         f"🎵 Song Type: {song_type_label}\n\n"
-        "🎼 Choose a music style or type your own.\n\n"
-        "Examples:\n- Remix\n- Rap\n- Romantic\n- Sad Song",
-        reply_markup=_music_style_keyboard(),
+        f"😊 Choose a mood for the {song_type_label.lower()} or type your own.\n\n"
+        f"Examples:\n{_mood_examples_text(context.user_data['song_type'])}",
+        reply_markup=_mood_keyboard(context.user_data["song_type"]),
     )
-    return MUSIC_STYLE
+    return MOOD
 
 
 async def get_custom_song_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -719,12 +715,12 @@ async def get_custom_song_type(update: Update, context: ContextTypes.DEFAULT_TYP
     await replace_flow_message(
         context,
         update.message.reply_text,
-        "🎼 Choose a music style or type your own.\n\n"
-        "Examples:\n- Remix\n- Rap\n- Romantic\n- Sad Song",
-        reply_markup=_music_style_keyboard(),
+        f"😊 Choose a mood for the {song_type.lower()} or type your own.\n\n"
+        f"Examples:\n{_mood_examples_text(song_type)}",
+        reply_markup=_mood_keyboard(song_type),
         state_key="song_flow_message_id",
     )
-    return MUSIC_STYLE
+    return MOOD
 
 
 # -----------------------------
@@ -741,10 +737,11 @@ async def get_music_style(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await replace_flow_message(
         context,
         update.message.reply_text,
-        "📝 What is the song topic?",
+        "🎵 Choose Song Type",
+        reply_markup=_song_type_keyboard(),
         state_key="song_flow_message_id",
     )
-    return TOPIC
+    return SONG_TYPE
 
 
 async def choose_music_style(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -761,8 +758,11 @@ async def choose_music_style(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return MUSIC_STYLE
 
     context.user_data["style"] = callback_value
-    await query.edit_message_text("📝 What is the song topic?")
-    return TOPIC
+    await query.edit_message_text(
+        "🎵 Choose Song Type",
+        reply_markup=_song_type_keyboard(),
+    )
+    return SONG_TYPE
 
 
 # -----------------------------
@@ -776,17 +776,20 @@ async def get_topic(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return TOPIC
 
     context.user_data["topic"] = topic
-    song_type_code = context.user_data.get("song_type", "custom")
-    song_type_label = _song_type_label(song_type_code)
     await replace_flow_message(
         context,
         update.message.reply_text,
-        f"😊 Choose a mood for the {song_type_label.lower()} or type your own.\n\n"
-        f"Examples:\n{_mood_examples_text(song_type_code)}",
-        reply_markup=_mood_keyboard(song_type_code),
+        "✍️ Tell me more about the song prompt or story.\n\n"
+        "Example:\n"
+        "- a breakup at midnight\n"
+        "- soft romantic words\n"
+        "- from a girl to a boy\n"
+        "- mention rain, memories, and pain\n\n"
+        "You can type extra details or tap Skip.",
+        reply_markup=_description_keyboard(),
         state_key="song_flow_message_id",
     )
-    return MOOD
+    return DESCRIPTION
 
 
 # -----------------------------
@@ -803,17 +806,11 @@ async def get_mood(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await replace_flow_message(
         context,
         update.message.reply_text,
-        "✍️ Tell me more about the feeling or story you want in the lyrics.\n\n"
-        "Example:\n"
-        "- a breakup at midnight\n"
-        "- soft romantic words\n"
-        "- from a girl to a boy\n"
-        "- mention rain, memories, and pain\n\n"
-        "You can type extra details or tap Skip.",
-        reply_markup=_description_keyboard(),
+        "🌍 Choose a language:",
+        reply_markup=_language_keyboard(),
         state_key="song_flow_message_id",
     )
-    return DESCRIPTION
+    return LANGUAGE
 
 
 async def choose_mood(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -831,16 +828,10 @@ async def choose_mood(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     context.user_data["mood"] = callback_value
     await query.edit_message_text(
-        "✍️ Tell me more about the feeling or story you want in the lyrics.\n\n"
-        "Example:\n"
-        "- a breakup at midnight\n"
-        "- soft romantic words\n"
-        "- from a girl to a boy\n"
-        "- mention rain, memories, and pain\n\n"
-        "You can type extra details or tap Skip.",
-        reply_markup=_description_keyboard(),
+        "🌍 Choose a language:",
+        reply_markup=_language_keyboard(),
     )
-    return DESCRIPTION
+    return LANGUAGE
 
 
 # -----------------------------
@@ -860,11 +851,12 @@ async def get_description(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await replace_flow_message(
         context,
         update.message.reply_text,
-        "🌍 Choose a language:",
-        reply_markup=_language_keyboard(),
+        "🎼 Choose a music style or type your own.\n\n"
+        "Examples:\n- Remix\n- Rap\n- Romantic\n- Sad Song",
+        reply_markup=_music_style_keyboard(),
         state_key="song_flow_message_id",
     )
-    return LANGUAGE
+    return MUSIC_STYLE
 
 
 async def skip_description(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -876,10 +868,11 @@ async def skip_description(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     context.user_data["description"] = ""
     await query.edit_message_text(
-        "🌍 Choose a language:",
-        reply_markup=_language_keyboard(),
+        "🎼 Choose a music style or type your own.\n\n"
+        "Examples:\n- Remix\n- Rap\n- Romantic\n- Sad Song",
+        reply_markup=_music_style_keyboard(),
     )
-    return LANGUAGE
+    return MUSIC_STYLE
 
 
 # -----------------------------
