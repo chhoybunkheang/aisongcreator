@@ -493,43 +493,63 @@ def _save_lyrics_draft(context, telegram_id):
 async def create_song(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     effective_user = update.effective_user
-    message = update.message
-    if effective_user is None or message is None:
+    query = update.callback_query
+    chat = update.effective_chat
+    if effective_user is None or chat is None:
         return ConversationHandler.END
+
+    if query:
+        await _safe_answer(query)
 
     telegram_id = effective_user.id
     user = get_user(telegram_id)
     if not user:
-        create_user(
+        user = create_user(
             telegram_id=telegram_id,
             name=effective_user.first_name,
         )
-        user = get_user(telegram_id)
 
     if not user:
-        await message.reply_text(
-            "❌ Unable to start song creation right now. Please send /start and try again."
+        await context.bot.send_message(
+            chat_id=chat.id,
+            text="❌ Unable to start song creation right now. Please send /start and try again."
         )
         return ConversationHandler.END
 
-    if user.credits <= 0:
+    user_credits = int(getattr(user, "credits", 0) or 0)
+
+    if user_credits <= 0:
         from app.handlers.buycredits import _buy_credits_menu_markup
-        await message.reply_text(
-            "❌ You don't have enough credits.\n\n"
-            "Please add credits to continue.\n\n"
-            "Choose a package below:",
-            reply_markup=_buy_credits_menu_markup(telegram_id)
+        await context.bot.send_message(
+            chat_id=chat.id,
+            text=(
+                "❌ You don't have enough credits.\n\n"
+                "Please add credits to continue.\n\n"
+                "Choose a package below:"
+            ),
+            reply_markup=_buy_credits_menu_markup(telegram_id),
         )
         return ConversationHandler.END
 
     keyboard = _entry_type_keyboard()
-    await replace_flow_message(
-        context,
-        message.reply_text,
-        f"💎 Full song credits: {user.credits}\n\nChoose how you want to create your song:",
-        reply_markup=keyboard,
-        state_key="song_flow_message_id",
-    )
+    prompt_text = f"💎 Full song credits: {user_credits}\n\nChoose how you want to create your song:"
+    if query:
+        await replace_flow_message(
+            context,
+            query.edit_message_text,
+            prompt_text,
+            reply_markup=keyboard,
+            state_key="song_flow_message_id",
+        )
+    else:
+        await replace_flow_message(
+            context,
+            context.bot.send_message,
+            chat_id=chat.id,
+            text=prompt_text,
+            reply_markup=keyboard,
+            state_key="song_flow_message_id",
+        )
     return CHOOSE_TYPE
 
 
@@ -539,13 +559,21 @@ async def create_song(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def choose_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     query = update.callback_query
+    if query is None or query.message is None or query.from_user is None:
+        return ConversationHandler.END
+
+    user_data = context.user_data
+    chat_data = context.chat_data
+    if user_data is None or chat_data is None:
+        return ConversationHandler.END
+
     await _safe_answer(query)
 
     if query.data == "type_new":
-        context.user_data.clear()
-        context.user_data["description"] = ""
-        context.user_data["song_type"] = "custom"
-        context.chat_data["song_flow_message_id"] = query.message.message_id
+        user_data.clear()
+        user_data["description"] = ""
+        user_data["song_type"] = "custom"
+        chat_data["song_flow_message_id"] = query.message.message_id
         await query.edit_message_text(
             "🎵 Choose Song Type",
             reply_markup=_song_type_keyboard(),
@@ -553,15 +581,18 @@ async def choose_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return SONG_TYPE
 
     if query.data == "type_paste":
-        context.user_data.clear()
-        context.user_data["description"] = ""
-        context.chat_data["song_flow_message_id"] = query.message.message_id
+        user_data.clear()
+        user_data["description"] = ""
+        chat_data["song_flow_message_id"] = query.message.message_id
         await query.edit_message_text("📋 Please paste your lyrics:")
         return PASTE_LYRICS
 
     # type_mylyrics — show saved lyrics list that has not been converted yet
     songs = get_user_songs(query.from_user.id)
-    songs_with_lyrics = [s for s in songs if s.lyrics and not s.mp3_path]
+    songs_with_lyrics = [
+        song for song in songs
+        if getattr(song, "lyrics", None) and not getattr(song, "mp3_path", None)
+    ]
     if not songs_with_lyrics:
         await query.edit_message_text(
             "You don't have any saved lyrics waiting for MP3 conversion yet. "
@@ -569,12 +600,15 @@ async def choose_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return ConversationHandler.END
 
-    keyboard = [[InlineKeyboardButton(s.topic, callback_data=f"lyr_pick_{s.id}")] for s in songs_with_lyrics]
+    keyboard = [
+        [InlineKeyboardButton(str(song.topic), callback_data=f"lyr_pick_{song.id}")]
+        for song in songs_with_lyrics
+    ]
     await query.edit_message_text(
         "📜 Select lyrics to convert to MP3:",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
-    context.chat_data["song_flow_message_id"] = query.message.message_id
+    chat_data["song_flow_message_id"] = query.message.message_id
     return CHOOSE_TYPE
 
 
@@ -584,29 +618,39 @@ async def choose_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def pick_saved_lyrics(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     query = update.callback_query
+    chat = update.effective_chat
+    if query is None or query.message is None or query.from_user is None or chat is None:
+        return ConversationHandler.END
+
+    user_data = context.user_data
+    chat_data = context.chat_data
+    if user_data is None or chat_data is None:
+        return ConversationHandler.END
+
     await _safe_answer(query)
 
-    song_id = int(query.data.split("_")[2])
+    callback_data = query.data or ""
+    song_id = int(callback_data.split("_")[2])
     song = get_song_by_id(song_id)
 
     if not song:
         await query.edit_message_text("Song not found.")
         return ConversationHandler.END
 
-    context.user_data["song_id"] = song.id
-    context.user_data["style"] = song.style
-    context.user_data["topic"] = song.topic
-    context.user_data["mood"] = song.mood
-    context.user_data["language"] = song.language
-    context.user_data["lyrics"] = song.lyrics
-    context.user_data["description"] = ""
+    user_data["song_id"] = song.id
+    user_data["style"] = song.style
+    user_data["topic"] = song.topic
+    user_data["mood"] = song.mood
+    user_data["language"] = song.language
+    user_data["lyrics"] = song.lyrics
+    user_data["description"] = ""
 
     await query.edit_message_text(f"📜 Topic: {song.topic}")
-    context.chat_data["song_flow_message_id"] = query.message.message_id
+    chat_data["song_flow_message_id"] = query.message.message_id
     return await _send_lyrics_preview_and_actions(
         context,
         query.from_user.id,
-        query.message.chat_id,
+        chat.id,
         song.lyrics,
         generated=False,
     )
