@@ -508,7 +508,7 @@ async def ms_prompt_video_subtitles(update: Update, context: ContextTypes.DEFAUL
         return
 
     await query.edit_message_text(
-        "Do you want animation in the video?",
+        f"Create video for \"{song.topic}\"\n\nStep 1 of 2: Do you want animation in the video?",
         reply_markup=InlineKeyboardMarkup([[
             InlineKeyboardButton("✨ Yes", callback_data=f"ms_vidanim_yes_{song.id}"),
             InlineKeyboardButton("🖼 No", callback_data=f"ms_vidanim_no_{song.id}"),
@@ -531,7 +531,8 @@ async def ms_prompt_video_animation_choice(update: Update, context: ContextTypes
     context.user_data["ms_video_animation_style"] = "pan_pulse" if choice == "yes" else "none"
 
     await query.edit_message_text(
-        "Do you want to add subtitles to the video?",
+        "Step 2 of 2: Do you want to add subtitles to the video?\n\n"
+        "Subtitles use extra credits.",
         reply_markup=InlineKeyboardMarkup([[
             InlineKeyboardButton("✅ Yes", callback_data=f"ms_vid_yes_{song.id}"),
             InlineKeyboardButton("❌ No", callback_data=f"ms_vid_no_{song.id}"),
@@ -829,7 +830,11 @@ async def mp3_video_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     await query.edit_message_text(
-        f"The cover image for \"{song.topic}\" is ready. Create the music video now?",
+        f"The cover image for \"{song.topic}\" is ready.\n\n"
+        "Next you will choose:\n"
+        "1. Animation or no animation\n"
+        "2. Subtitles or no subtitles\n\n"
+        "Create the music video now?",
         reply_markup=InlineKeyboardMarkup([[
             InlineKeyboardButton("✅ Yes", callback_data=f"ms_vid_prompt_{song.id}"),
             InlineKeyboardButton("❌ No", callback_data=f"ms_skip_{song.id}"),
