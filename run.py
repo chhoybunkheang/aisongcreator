@@ -88,7 +88,11 @@ def main():
         payment_handler,
         receive_payment,
     )
-    from app.handlers.help import settings_action_handler, settings_handler
+    from app.handlers.help import (
+        settings_action_handler,
+        settings_feedback_text_handler,
+        settings_handler,
+    )
     from app.handlers.mysongs import (
         add_subtitle_handler,
         lyrics_detail_handler,
@@ -187,6 +191,7 @@ def main():
     app.add_handler(buycredits_handler)
     from app.handlers.help import settings_text_handler
     app.add_handler(settings_text_handler)
+    app.add_handler(settings_feedback_text_handler)
     app.add_handler(payment_handler)
     app.add_handler(MessageHandler(filters.PHOTO, photo_router))
     app.add_handler(approve_callback_handler)

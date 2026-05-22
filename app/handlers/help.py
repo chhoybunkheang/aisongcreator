@@ -33,6 +33,7 @@ def _settings_menu_keyboard():
 def _settings_menu_keyboard_for_user(is_admin):
     rows = [
         [InlineKeyboardButton("ℹ️ Info", callback_data="settings_info")],
+        [InlineKeyboardButton("💬 Feedback", callback_data="settings_feedback")],
         [InlineKeyboardButton("🗑 Delete", callback_data="settings_delete")],
         [InlineKeyboardButton("♻️ Reset", callback_data="settings_reset")],
     ]
@@ -82,6 +83,12 @@ def _settings_delete_list_keyboard(items, item_type):
 def _settings_reset_keyboard():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("✅ Confirm Reset", callback_data="settings_reset_confirm")],
+        [InlineKeyboardButton("⬅️ Back", callback_data="settings_back")],
+    ])
+
+
+def _settings_feedback_keyboard():
+    return InlineKeyboardMarkup([
         [InlineKeyboardButton("⬅️ Back", callback_data="settings_back")],
     ])
 
@@ -246,6 +253,56 @@ def _clear_credit_settings_state(user_data):
     user_data.pop("settings_credit_target_id", None)
     user_data.pop("settings_credit_target_name", None)
     user_data.pop("settings_credit_operation", None)
+
+
+def _clear_feedback_settings_state(user_data):
+    user_data.pop("settings_waiting_for_feedback", None)
+
+
+async def settings_feedback_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message = update.message
+    effective_user = update.effective_user
+    user_data = context.user_data
+
+    if message is None or effective_user is None or user_data is None:
+        return
+
+    if not user_data.get("settings_waiting_for_feedback"):
+        return
+
+    feedback_text = (message.text or "").strip()
+    if not feedback_text:
+        await message.reply_text("❌ Feedback cannot be empty. Please type your feedback:")
+        return
+
+    user = get_user(effective_user.id)
+    user_name = (getattr(user, "name", "") or effective_user.first_name or "Unknown").strip()
+
+    try:
+        await context.bot.send_message(
+            chat_id=ADMIN_ID,
+            text=(
+                "💬 New Feedback\n\n"
+                f"From: {user_name}\n"
+                f"Telegram ID: {effective_user.id}\n\n"
+                f"{feedback_text}"
+            )
+        )
+    except Exception as notification_error:
+        print(f"[WARN] Failed to send feedback to admin: {notification_error}")
+        await message.reply_text("❌ Could not send feedback right now. Please try again.")
+        return
+
+    _clear_feedback_settings_state(user_data)
+    await replace_flow_message(
+        context,
+        message.reply_text,
+        "✅ Thanks for your feedback. It has been sent to admin.",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("⬅️ Back To Settings", callback_data="settings_back")],
+        ]),
+        state_key="settings_flow_message_id",
+    )
 
 
 def _language_flag(language):
@@ -593,9 +650,21 @@ async def settings_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer()
         user_data.pop("payment_qr_package", None)
         _clear_credit_settings_state(user_data)
+        _clear_feedback_settings_state(user_data)
         await query.edit_message_text(
             "⚙️ Settings\n\nChoose an option:",
             reply_markup=_settings_menu_keyboard_for_user(is_admin)
+        )
+        return
+
+    if query_data == "settings_feedback":
+        await query.answer()
+        _clear_credit_settings_state(user_data)
+        _clear_feedback_settings_state(user_data)
+        user_data["settings_waiting_for_feedback"] = True
+        await query.edit_message_text(
+            "💬 Feedback\n\nSend your feedback about the app. It will be forwarded to admin.",
+            reply_markup=_settings_feedback_keyboard()
         )
         return
 
@@ -850,4 +919,10 @@ settings_action_handler = CallbackQueryHandler(settings_action, pattern=r"^setti
 settings_text_handler = MessageHandler(
     filters.TEXT & ~filters.COMMAND & filters.User(user_id=ADMIN_ID) & filters.Regex(r"^-?\d+$"),
     settings_action
+)
+
+
+settings_feedback_text_handler = MessageHandler(
+    filters.TEXT & ~filters.COMMAND,
+    settings_feedback_text
 )
