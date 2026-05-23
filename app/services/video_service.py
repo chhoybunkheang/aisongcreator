@@ -87,7 +87,7 @@ UNICODE_SUBTITLE_FONT_CANDIDATES = [
 KHMER_SUBTITLE_FONT_CANDIDATES = [
     "Noto Sans Khmer",
     "Noto Sans Khmer UI",
-    "NotoSansKhmer-Regular.ttf",
+    "NotoSansKhmer-Regular.ttf",  # downloaded at startup
     "NotoSansKhmerUI-Regular.ttf",
     "KhmerUI.ttf",
     "DaunPenh.ttf",
@@ -267,6 +267,11 @@ _STARTUP_FONT_DOWNLOADS = (
         "NotoSansCJKjp-Regular.otf",
         "https://github.com/notofonts/noto-cjk/raw/main"
         "/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf",
+    ),
+    (
+        "NotoSansKhmer-Regular.ttf",
+        "https://github.com/notofonts/noto-fonts/raw/main"
+        "/hinted/ttf/NotoSansKhmer/NotoSansKhmer-Regular.ttf",
     ),
 )
 
