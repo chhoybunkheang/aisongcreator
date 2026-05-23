@@ -33,26 +33,84 @@ DEFAULT_SUBTITLE_FONT_CANDIDATES = [
     "segoeui.ttf",
     "arial.ttf",
 ]
+UNICODE_SUBTITLE_FONT_CANDIDATES = [
+    "arialuni.ttf",
+    *DEFAULT_SUBTITLE_FONT_CANDIDATES,
+]
 KHMER_SUBTITLE_FONT_CANDIDATES = [
     "KhmerUI.ttf",
     "DaunPenh.ttf",
     "MoolBoran.ttf",
-    *DEFAULT_SUBTITLE_FONT_CANDIDATES,
+    *UNICODE_SUBTITLE_FONT_CANDIDATES,
+]
+THAI_SUBTITLE_FONT_CANDIDATES = [
+    "LeelawUI.ttf",
+    "LeelaUIb.ttf",
+    "tahoma.ttf",
+    *UNICODE_SUBTITLE_FONT_CANDIDATES,
 ]
 JAPANESE_SUBTITLE_FONT_CANDIDATES = [
     "YuGothR.ttc",
     "YuGothM.ttc",
     "msgothic.ttc",
     "meiryo.ttc",
-    *DEFAULT_SUBTITLE_FONT_CANDIDATES,
+    *UNICODE_SUBTITLE_FONT_CANDIDATES,
 ]
 CHINESE_SUBTITLE_FONT_CANDIDATES = [
     "msyh.ttc",
     "msyhbd.ttc",
     "simhei.ttf",
     "simsun.ttc",
+    *UNICODE_SUBTITLE_FONT_CANDIDATES,
+]
+KOREAN_SUBTITLE_FONT_CANDIDATES = [
+    "malgun.ttf",
+    "malgunbd.ttf",
+    *UNICODE_SUBTITLE_FONT_CANDIDATES,
+]
+ARABIC_SUBTITLE_FONT_CANDIDATES = [
+    "arialuni.ttf",
+    "tahoma.ttf",
     *DEFAULT_SUBTITLE_FONT_CANDIDATES,
 ]
+HEBREW_SUBTITLE_FONT_CANDIDATES = [
+    "arialuni.ttf",
+    "tahoma.ttf",
+    *DEFAULT_SUBTITLE_FONT_CANDIDATES,
+]
+DEVANAGARI_SUBTITLE_FONT_CANDIDATES = [
+    "arialuni.ttf",
+    *DEFAULT_SUBTITLE_FONT_CANDIDATES,
+]
+
+CHINESE_SCRIPT_RANGES = (
+    ("\u3400", "\u4dbf"),
+    ("\u4e00", "\u9fff"),
+    ("\uf900", "\ufaff"),
+    ("\u3000", "\u303f"),
+    ("\uff00", "\uffef"),
+)
+THAI_SCRIPT_RANGES = (
+    ("\u0e00", "\u0e7f"),
+)
+KOREAN_SCRIPT_RANGES = (
+    ("\u1100", "\u11ff"),
+    ("\u3130", "\u318f"),
+    ("\uac00", "\ud7af"),
+)
+ARABIC_SCRIPT_RANGES = (
+    ("\u0600", "\u06ff"),
+    ("\u0750", "\u077f"),
+    ("\u08a0", "\u08ff"),
+    ("\ufb50", "\ufdff"),
+    ("\ufe70", "\ufeff"),
+)
+HEBREW_SCRIPT_RANGES = (
+    ("\u0590", "\u05ff"),
+)
+DEVANAGARI_SCRIPT_RANGES = (
+    ("\u0900", "\u097f"),
+)
 
 
 def _validate_rendered_video(output_path):
@@ -86,15 +144,30 @@ def _contains_range(text, start, end):
     return any(start <= char <= end for char in str(text or ""))
 
 
+def _contains_any_range(text, ranges):
+    text = str(text or "")
+    return any(start <= char <= end for char in text for start, end in ranges)
+
+
 def _resolve_subtitle_font(text):
     candidates = DEFAULT_SUBTITLE_FONT_CANDIDATES
 
     if _contains_range(text, "\u1780", "\u17ff"):
         candidates = KHMER_SUBTITLE_FONT_CANDIDATES
+    elif _contains_any_range(text, THAI_SCRIPT_RANGES):
+        candidates = THAI_SUBTITLE_FONT_CANDIDATES
     elif _contains_range(text, "\u3040", "\u30ff"):
         candidates = JAPANESE_SUBTITLE_FONT_CANDIDATES
-    elif _contains_range(text, "\u4e00", "\u9fff"):
+    elif _contains_any_range(text, KOREAN_SCRIPT_RANGES):
+        candidates = KOREAN_SUBTITLE_FONT_CANDIDATES
+    elif _contains_any_range(text, CHINESE_SCRIPT_RANGES):
         candidates = CHINESE_SUBTITLE_FONT_CANDIDATES
+    elif _contains_any_range(text, ARABIC_SCRIPT_RANGES):
+        candidates = ARABIC_SUBTITLE_FONT_CANDIDATES
+    elif _contains_any_range(text, HEBREW_SCRIPT_RANGES):
+        candidates = HEBREW_SUBTITLE_FONT_CANDIDATES
+    elif _contains_any_range(text, DEVANAGARI_SCRIPT_RANGES):
+        candidates = DEVANAGARI_SUBTITLE_FONT_CANDIDATES
 
     for candidate in candidates:
         font_path = _font_path(candidate)
@@ -339,7 +412,7 @@ def create_music_video(audio_path, image_path=None, output_path=None, animation_
             return output_path
         except Exception as exc:
             last_error = exc
-            if os.path.exists(output_path):
+            if output_path and os.path.exists(output_path):
                 try:
                     os.remove(output_path)
                 except OSError:
