@@ -1253,13 +1253,29 @@ async def choose_cover_source(update: Update, context: ContextTypes.DEFAULT_TYPE
         return UPLOAD_COVER
 
     if query.data == "cover_use_generated":
-        await query.edit_message_text("🎨 Preparing generated image...\nFinalizing cover...")
+        generated_cover_task = context.user_data.get("generated_cover_task")
+        wait_progress_task = None
+        wait_progress_stop = None
+
+        if generated_cover_task and not generated_cover_task.done():
+            await query.edit_message_text("🎨 Please wait, image is being generated...\nPreparing image...")
+            wait_progress_task, wait_progress_stop = await start_timed_progress_message(
+                query.message,
+                "🎨 Please wait, image is being generated...\nPreparing image...",
+                start_percent=1,
+                max_percent=95,
+                total_seconds=COVER_QUEUE_SECONDS,
+            )
+        else:
+            await query.edit_message_text("🎨 Preparing generated image...\nFinalizing cover...")
 
         try:
             cover_image = await _resolve_generated_cover_image(context)
         except Exception:
             context.user_data.pop("generated_cover_task", None)
             context.user_data.pop("generated_cover_image", None)
+            if wait_progress_stop is not None:
+                await stop_progress_message(wait_progress_task, wait_progress_stop)
             await query.edit_message_text(
                 "❌ The generated image is not ready right now. Please upload an image or upload a video instead.",
                 reply_markup=_cover_source_keyboard(),
@@ -1267,11 +1283,16 @@ async def choose_cover_source(update: Update, context: ContextTypes.DEFAULT_TYPE
             return CHOOSE_COVER
 
         if not cover_image:
+            if wait_progress_stop is not None:
+                await stop_progress_message(wait_progress_task, wait_progress_stop)
             await query.edit_message_text(
                 "❌ The generated image is not available right now. Please upload an image or upload a video instead.",
                 reply_markup=_cover_source_keyboard(),
             )
             return CHOOSE_COVER
+
+        if wait_progress_stop is not None:
+            await stop_progress_message(wait_progress_task, wait_progress_stop)
 
         context.user_data["cover_image"] = cover_image
         context.user_data.pop("source_video_path", None)
