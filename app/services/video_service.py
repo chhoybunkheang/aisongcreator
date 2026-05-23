@@ -123,6 +123,7 @@ CHINESE_SUBTITLE_FONT_CANDIDATES = [
     "WenQuanYi Zen Hei",
     "WenQuanYi Micro Hei",
     "Noto Sans CJK",
+    "NotoSansCJKsc-Regular.otf",
     "NotoSansCJK-Regular.ttc",
     "NotoSansSC-Regular.otf",
     "NotoSansSC-Regular.ttf",
@@ -256,13 +257,13 @@ DEVANAGARI_FONTCONFIG_PATTERNS = (
 
 
 def _ensure_cjk_font():
-    """Download NotoSansSC-Regular.otf to PROJECT_FONT_DIR at startup if missing."""
-    target = os.path.join(PROJECT_FONT_DIR, "NotoSansSC-Regular.otf")
+    """Download NotoSansCJKsc-Regular.otf to PROJECT_FONT_DIR at startup if missing."""
+    target = os.path.join(PROJECT_FONT_DIR, "NotoSansCJKsc-Regular.otf")
     if os.path.isfile(target) and os.path.getsize(target) > 0:
         return
     url = (
-        "https://github.com/googlefonts/noto-cjk/raw/main"
-        "/Sans/OTF/SimplifiedChinese/NotoSansSC-Regular.otf"
+        "https://github.com/notofonts/noto-cjk/raw/main"
+        "/Sans/OTF/SimplifiedChinese/NotoSansCJKsc-Regular.otf"
     )
     try:
         os.makedirs(PROJECT_FONT_DIR, exist_ok=True)
