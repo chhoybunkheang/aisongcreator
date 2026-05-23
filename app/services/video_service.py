@@ -465,7 +465,7 @@ def _log_project_font_dir_state():
 
 @lru_cache(maxsize=512)
 def _log_subtitle_render_choice(source_text, display_text, font_path, method):
-    logger.info(
+    logger.debug(
         "Subtitle render choice: method=%s cjk=%s font=%s source=%r display=%r",
         method,
         _uses_cjk_subtitle_layout(source_text),
