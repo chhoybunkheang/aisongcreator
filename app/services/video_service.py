@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import re
 import subprocess
@@ -15,6 +16,8 @@ from moviepy import (
     VideoFileClip,
     concatenate_videoclips,
 )
+
+logger = logging.getLogger(__name__)
 
 VIDEO_HEIGHT = 540
 VIDEO_FPS = 20
@@ -292,6 +295,25 @@ def _wrap_cjk_subtitle_text(text, max_chars_per_line=18):
     return "\n".join(lines[:2])
 
 
+def _subtitle_preview(text, limit=80):
+    normalized_text = str(text or "").replace("\n", " ").strip()
+    if len(normalized_text) <= limit:
+        return normalized_text
+    return f"{normalized_text[:limit]}..."
+
+
+@lru_cache(maxsize=512)
+def _log_subtitle_render_choice(source_text, display_text, font_path, method):
+    logger.info(
+        "Subtitle render choice: method=%s cjk=%s font=%s source=%r display=%r",
+        method,
+        _uses_cjk_subtitle_layout(source_text),
+        font_path or "<default>",
+        _subtitle_preview(source_text),
+        _subtitle_preview(display_text),
+    )
+
+
 def _resolve_subtitle_font(text):
     candidates = DEFAULT_SUBTITLE_FONT_CANDIDATES
 
@@ -325,6 +347,7 @@ def _make_subtitle_text_clip(text, font_size, subtitle_width):
 
     if _uses_cjk_subtitle_layout(text):
         display_text = _wrap_cjk_subtitle_text(text)
+        _log_subtitle_render_choice(text, display_text, font_path, "label")
         return TextClip(
             text=display_text,
             font=font_path,
@@ -337,6 +360,7 @@ def _make_subtitle_text_clip(text, font_size, subtitle_width):
             text_align="center",
         )
 
+    _log_subtitle_render_choice(text, text, font_path, "caption")
     return TextClip(
         text=text,
         font=font_path,
@@ -544,9 +568,16 @@ def create_music_video(audio_path, image_path=None, output_path=None, animation_
         try:
             if subtitles_enabled:
                 subtitle_segments = _load_subtitle_segments(subtitle_timing)
+                logger.info(
+                    "Preparing subtitles: timed_segments=%s lyrics_present=%s output=%s",
+                    len(subtitle_segments),
+                    bool(str(lyrics or "").strip()),
+                    output_path,
+                )
                 subtitle_clips = _build_timed_subtitle_clips(subtitle_segments, audio.duration, frame_size)
                 if not subtitle_clips:
                     subtitle_lines = _build_subtitle_lines(lyrics)
+                    logger.info("Falling back to line-based subtitles: lines=%s output=%s", len(subtitle_lines), output_path)
                     subtitle_clips = _build_subtitle_clips(subtitle_lines, audio.duration, frame_size)
                 if subtitle_clips:
                     video = CompositeVideoClip([video, *subtitle_clips]).with_audio(audio)
