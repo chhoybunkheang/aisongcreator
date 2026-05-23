@@ -274,6 +274,23 @@ def _contains_any_range(text, ranges):
     return any(start <= char <= end for char in text for start, end in ranges)
 
 
+def _uses_cjk_subtitle_layout(text):
+    return (
+        _contains_any_range(text, CHINESE_SCRIPT_RANGES)
+        or _contains_range(text, "\u3040", "\u30ff")
+        or _contains_any_range(text, KOREAN_SCRIPT_RANGES)
+    )
+
+
+def _wrap_cjk_subtitle_text(text, max_chars_per_line=18):
+    compact_text = re.sub(r"\s+", "", str(text or "")).strip()
+    if not compact_text:
+        return ""
+
+    lines = [compact_text[index:index + max_chars_per_line] for index in range(0, len(compact_text), max_chars_per_line)]
+    return "\n".join(lines[:2])
+
+
 def _resolve_subtitle_font(text):
     candidates = DEFAULT_SUBTITLE_FONT_CANDIDATES
 
@@ -304,6 +321,20 @@ def _resolve_subtitle_font(text):
 
 def _make_subtitle_text_clip(text, font_size, subtitle_width):
     font_path = _resolve_subtitle_font(text)
+
+    if _uses_cjk_subtitle_layout(text):
+        display_text = _wrap_cjk_subtitle_text(text)
+        return TextClip(
+            text=display_text,
+            font=font_path,
+            font_size=font_size,
+            color=SUBTITLE_TEXT_COLOR,
+            stroke_color="black",
+            stroke_width=1,
+            method="label",
+            margin=(28, 18),
+            text_align="center",
+        )
 
     return TextClip(
         text=text,
