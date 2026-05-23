@@ -236,6 +236,25 @@ def update_song_lyrics(song_id, lyrics):
 
 
 # -----------------------------------
+# UPDATE SONG CONTEXT
+# -----------------------------------
+def update_song_context(song_id, topic=None, style=None):
+
+    db = SessionLocal()
+
+    song = db.query(Song).filter(Song.id == song_id).first()
+
+    if song:
+        if topic is not None:
+            song.topic = topic
+        if style is not None:
+            song.style = style
+        db.commit()
+
+    db.close()
+
+
+# -----------------------------------
 # UPDATE SONG SUBTITLE TIMING
 # -----------------------------------
 def update_song_subtitle_timing(song_id, subtitle_timing):

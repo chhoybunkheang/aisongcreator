@@ -38,6 +38,7 @@ from app.database.queries import (
     get_user_songs,
     refund_credit,
     save_song,
+    update_song_context,
     update_song_cover,
     update_song_lyrics,
     update_song_mp3,
@@ -66,6 +67,7 @@ from app.states.song_states import (
     MOOD,
     MUSIC_STYLE,
     PASTE_LYRICS,
+    REVIEW_MP3,
     SINGER,
     TOPIC,
     UPLOAD_COVER,
@@ -335,12 +337,68 @@ def _lyrics_action_keyboard():
     ])
 
 
+def _review_mp3_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("📝 Edit Title", callback_data="review_title")],
+        [InlineKeyboardButton("🎼 Edit Style", callback_data="review_style")],
+        [InlineKeyboardButton("✅ Continue", callback_data="review_continue")],
+    ])
+
+
 def _lyrics_preview_message(lyrics, generated=False):
     prefix = "🎵 Your AI Lyrics" if generated else "📝 Your Lyrics"
     lyrics_msg = f"{prefix}\n\n{lyrics}"
     if len(lyrics_msg) > 4096:
         lyrics_msg = lyrics_msg[:4090] + "..."
     return lyrics_msg
+
+
+def _short_lyrics_preview(lyrics):
+    preview_lines = []
+
+    for raw_line in (lyrics or "").splitlines():
+        line = (raw_line or "").strip()
+        if not line:
+            continue
+        preview_lines.append(line)
+        if len(preview_lines) >= 4:
+            break
+
+    preview_text = "\n".join(preview_lines) or "-"
+    if len(preview_text) > 280:
+        preview_text = preview_text[:277] + "..."
+    return preview_text
+
+
+def _pre_mp3_summary_message(context):
+    user_data = context.user_data
+    singer_gender = user_data.get("singer_gender")
+    singer_label = singer_gender.title() if singer_gender else "Not set"
+    mood_label = user_data.get("mood") or "Not set"
+    language_label = user_data.get("language") or "Not set"
+
+    return (
+        "🎵 Review Before MP3\n\n"
+        f"📝 Title: {user_data.get('topic', '-')}\n"
+        f"🎼 Style: {user_data.get('style', '-')}\n"
+        f"😊 Mood: {mood_label}\n"
+        f"🌍 Language: {language_label}\n"
+        f"🎤 Singer: {singer_label}\n\n"
+        "Lyric Preview:\n"
+        f"{_short_lyrics_preview(user_data.get('lyrics', ''))}"
+    )
+
+
+async def _show_pre_mp3_summary(context, sender, **kwargs):
+    await replace_flow_message(
+        context,
+        sender,
+        text=_pre_mp3_summary_message(context),
+        reply_markup=_review_mp3_keyboard(),
+        state_key="song_flow_message_id",
+        **kwargs,
+    )
+    return REVIEW_MP3
 
 
 async def _show_lyrics_actions(context, chat_id):
@@ -693,6 +751,11 @@ async def get_music_style(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     context.user_data["style"] = style
 
+    if context.user_data.pop("summary_edit_field", None) == "style":
+        if context.user_data.get("song_id"):
+            update_song_context(context.user_data["song_id"], style=style)
+        return await _show_pre_mp3_summary(context, update.message.reply_text)
+
     if context.user_data.get("pasted_lyrics_mode"):
         context.user_data["mood"] = ""
         await replace_flow_message(
@@ -730,6 +793,15 @@ async def choose_music_style(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     context.user_data["style"] = callback_value
 
+    if context.user_data.pop("summary_edit_field", None) == "style":
+        if context.user_data.get("song_id"):
+            update_song_context(context.user_data["song_id"], style=callback_value)
+        return await _show_pre_mp3_summary(
+            context,
+            context.bot.send_message,
+            chat_id=query.message.chat_id,
+        )
+
     if context.user_data.get("pasted_lyrics_mode"):
         context.user_data["mood"] = ""
         await query.edit_message_text(
@@ -757,6 +829,11 @@ async def get_topic(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return TOPIC
 
     context.user_data["topic"] = topic
+
+    if context.user_data.pop("summary_edit_field", None) == "topic":
+        if context.user_data.get("song_id"):
+            update_song_context(context.user_data["song_id"], topic=topic)
+        return await _show_pre_mp3_summary(context, update.message.reply_text)
 
     if context.user_data.get("pasted_lyrics_mode"):
         context.user_data["description"] = ""
@@ -928,11 +1005,11 @@ async def lyrics_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if query.data == "lyrics_continue":
         _persist_current_lyrics(context, query.from_user.id)
-        await query.edit_message_text(
-            "🎧 Do you want to convert this to MP3?",
-            reply_markup=_mp3_delivery_keyboard(),
+        return await _show_pre_mp3_summary(
+            context,
+            context.bot.send_message,
+            chat_id=query.message.chat_id,
         )
-        return CONFIRM_MP3
 
     if query.data == "lyrics_edit":
         await query.edit_message_text(
@@ -953,6 +1030,10 @@ async def edit_lyrics(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data.get("pasted_lyrics_mode"):
         context.user_data["language"] = _detect_language_from_lyrics(lyrics)
 
+    if context.user_data.pop("return_to_pre_mp3_review", None):
+        _persist_current_lyrics(context, update.effective_user.id)
+        return await _show_pre_mp3_summary(context, update.message.reply_text)
+
     return await _send_lyrics_preview_and_actions(
         context,
         update.effective_user.id,
@@ -960,6 +1041,34 @@ async def edit_lyrics(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lyrics,
         generated=False,
     )
+
+
+async def review_mp3(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await _safe_answer(query)
+
+    if query.data == "review_continue":
+        await query.edit_message_text(
+            "🎧 Do you want to convert this to MP3?",
+            reply_markup=_mp3_delivery_keyboard(),
+        )
+        return CONFIRM_MP3
+
+    if query.data == "review_title":
+        context.user_data["summary_edit_field"] = "topic"
+        await query.edit_message_text("📝 Send your updated song title.")
+        return TOPIC
+
+    if query.data == "review_style":
+        context.user_data["summary_edit_field"] = "style"
+        await query.edit_message_text(
+            "🎼 Choose a music style or type your own.\n\n"
+            "Examples:\n- Remix\n- Rap\n- Romantic\n- Sad Song",
+            reply_markup=_music_style_keyboard(),
+        )
+        return MUSIC_STYLE
+
+    return REVIEW_MP3
 
 
 # -----------------------------
@@ -1495,6 +1604,10 @@ song_handler = ConversationHandler(
         ],
         EDIT_LYRICS: [
             MessageHandler(filters.TEXT & ~filters.COMMAND, edit_lyrics),
+            CallbackQueryHandler(cancel_flow_handler, pattern=r"^cancel_flow$")
+        ],
+        REVIEW_MP3: [
+            CallbackQueryHandler(review_mp3, pattern=r"^review_"),
             CallbackQueryHandler(cancel_flow_handler, pattern=r"^cancel_flow$")
         ],
         CONFIRM_MP3: [
