@@ -1,7 +1,9 @@
+import glob
 import json
 import logging
 import os
 import re
+import shutil
 import subprocess
 import time
 from functools import lru_cache
@@ -47,6 +49,22 @@ FONT_SEARCH_DIRS = [
     os.path.expanduser("~/.local/share/fonts"),
     "/Library/Fonts",
     "/System/Library/Fonts",
+]
+FONTCONFIG_MATCH_BINARY_CANDIDATES = [
+    "/usr/bin/fc-match",
+    "/usr/local/bin/fc-match",
+    "/nix/var/nix/profiles/default/bin/fc-match",
+    "/root/.nix-profile/bin/fc-match",
+    "/etc/profiles/per-user/root/bin/fc-match",
+    "/nix/store/*-fontconfig-*/bin/fc-match",
+]
+FONTCONFIG_LIST_BINARY_CANDIDATES = [
+    "/usr/bin/fc-list",
+    "/usr/local/bin/fc-list",
+    "/nix/var/nix/profiles/default/bin/fc-list",
+    "/root/.nix-profile/bin/fc-list",
+    "/etc/profiles/per-user/root/bin/fc-list",
+    "/nix/store/*-fontconfig-*/bin/fc-list",
 ]
 DEFAULT_SUBTITLE_FONT_CANDIDATES = [
     "Noto Sans",
@@ -256,6 +274,50 @@ def _is_retryable_video_error(error):
 
 
 @lru_cache(maxsize=1)
+def _fontconfig_binary(binary_name):
+    resolved_path = shutil.which(binary_name)
+    if resolved_path:
+        return resolved_path
+
+    candidates = FONTCONFIG_MATCH_BINARY_CANDIDATES if binary_name == "fc-match" else FONTCONFIG_LIST_BINARY_CANDIDATES
+    for candidate in candidates:
+        for expanded_path in glob.glob(candidate):
+            if os.path.isfile(expanded_path) and os.access(expanded_path, os.X_OK):
+                return expanded_path
+
+    return None
+
+
+@lru_cache(maxsize=1)
+def _fontconfig_known_fonts():
+    if os.name == "nt":
+        return ()
+
+    fc_list_path = _fontconfig_binary("fc-list")
+    if not fc_list_path:
+        return ()
+
+    try:
+        result = subprocess.run(
+            [fc_list_path, "-f", "%{file}\n"],
+            capture_output=True,
+            text=True,
+            timeout=4,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ()
+
+    font_paths = []
+    for line in (result.stdout or "").splitlines():
+        normalized_path = line.strip()
+        if normalized_path and os.path.exists(normalized_path):
+            font_paths.append(normalized_path)
+
+    return tuple(font_paths)
+
+
+@lru_cache(maxsize=1)
 def _available_font_index():
     font_index = {}
 
@@ -268,6 +330,11 @@ def _available_font_index():
                 lower_name = file_name.lower()
                 if lower_name not in font_index:
                     font_index[lower_name] = os.path.join(root, file_name)
+
+    for font_path in _fontconfig_known_fonts():
+        file_name = os.path.basename(font_path).lower()
+        if file_name and file_name not in font_index:
+            font_index[file_name] = font_path
 
     return font_index
 
@@ -294,9 +361,13 @@ def _fontconfig_match(font_name):
     if os.path.sep in str(font_name):
         return None
 
+    fc_match_path = _fontconfig_binary("fc-match")
+    if not fc_match_path:
+        return None
+
     try:
         result = subprocess.run(
-            ["fc-match", "-f", "%{file}", str(font_name)],
+            [fc_match_path, "-f", "%{file}", str(font_name)],
             capture_output=True,
             text=True,
             timeout=2,
