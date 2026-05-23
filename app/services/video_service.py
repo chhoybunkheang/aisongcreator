@@ -5,6 +5,7 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 import time
 import urllib.request
 from functools import lru_cache
@@ -680,6 +681,173 @@ def _build_timed_subtitle_clips(subtitle_segments, duration, frame_size):
     return subtitle_clips
 
 
+def _segments_from_subtitle_lines(subtitle_lines, duration):
+    if not subtitle_lines:
+        return []
+
+    segment_duration = max(float(duration or 0.0) / len(subtitle_lines), 0.1)
+    segments = []
+    for index, subtitle_line in enumerate(subtitle_lines):
+        start_time = index * segment_duration
+        remaining = max(float(duration or 0.0) - start_time, 0.1)
+        segments.append({
+            "text": subtitle_line,
+            "start": round(max(start_time, 0.0), 3),
+            "end": round(max(start_time, 0.0) + min(segment_duration, remaining), 3),
+        })
+
+    return segments
+
+
+def _contains_complex_shaping_script(text):
+    # Khmer/Thai need OpenType shaping support for stacked/combined glyphs.
+    return (
+        _contains_range(text, "\u1780", "\u17ff")
+        or _contains_any_range(text, THAI_SCRIPT_RANGES)
+    )
+
+
+def _should_use_ass_renderer(subtitle_segments):
+    return any(_contains_complex_shaping_script(segment.get("text", "")) for segment in subtitle_segments)
+
+
+def _ass_timestamp(seconds):
+    safe_seconds = max(float(seconds or 0.0), 0.0)
+    hours = int(safe_seconds // 3600)
+    minutes = int((safe_seconds % 3600) // 60)
+    whole_seconds = int(safe_seconds % 60)
+    centiseconds = int(round((safe_seconds - int(safe_seconds)) * 100))
+    if centiseconds >= 100:
+        whole_seconds += 1
+        centiseconds = 0
+    if whole_seconds >= 60:
+        minutes += 1
+        whole_seconds = 0
+    if minutes >= 60:
+        hours += 1
+        minutes = 0
+    return f"{hours}:{minutes:02d}:{whole_seconds:02d}.{centiseconds:02d}"
+
+
+def _ass_escape_text(text):
+    escaped_text = str(text or "")
+    escaped_text = escaped_text.replace("\\", r"\\")
+    escaped_text = escaped_text.replace("{", r"\{").replace("}", r"\}")
+    escaped_text = escaped_text.replace("\r\n", "\n").replace("\r", "\n").replace("\n", r"\N")
+    return escaped_text
+
+
+def _ass_font_name_for_segments(subtitle_segments):
+    combined_text = "\n".join(str(segment.get("text") or "") for segment in subtitle_segments)
+    if _contains_range(combined_text, "\u1780", "\u17ff"):
+        return "Noto Sans Khmer"
+    if _contains_any_range(combined_text, THAI_SCRIPT_RANGES):
+        return "Noto Sans Thai"
+    return "Noto Sans"
+
+
+def _write_ass_subtitle_file(subtitle_segments, frame_size):
+    frame_width, frame_height = frame_size
+    font_name = _ass_font_name_for_segments(subtitle_segments)
+    font_size = max(int(frame_height * 0.055), 28)
+
+    ass_lines = [
+        "[Script Info]",
+        "ScriptType: v4.00+",
+        f"PlayResX: {frame_width}",
+        f"PlayResY: {frame_height}",
+        "ScaledBorderAndShadow: yes",
+        "",
+        "[V4+ Styles]",
+        "Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding",
+        f"Style: Default,{font_name},{font_size},&H00FFFFFF,&H000000FF,&H00000000,&H64000000,0,0,0,0,100,100,0,0,1,0,0,2,30,30,{SUBTITLE_BOTTOM_MARGIN},1",
+        "",
+        "[Events]",
+        "Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text",
+    ]
+
+    for segment in subtitle_segments:
+        subtitle_text = str(segment.get("text") or "").strip()
+        start_time = float(segment.get("start", 0.0) or 0.0)
+        end_time = float(segment.get("end", start_time) or start_time)
+        if not subtitle_text or end_time <= start_time:
+            continue
+
+        ass_lines.append(
+            "Dialogue: 0,"
+            f"{_ass_timestamp(start_time)},"
+            f"{_ass_timestamp(end_time)},"
+            "Default,,0,0,0,,"
+            f"{_ass_escape_text(subtitle_text)}"
+        )
+
+    ass_file = tempfile.NamedTemporaryFile(mode="w", suffix=".ass", delete=False, encoding="utf-8")
+    try:
+        ass_file.write("\n".join(ass_lines))
+        ass_file.flush()
+        return ass_file.name
+    finally:
+        ass_file.close()
+
+
+def _ffmpeg_filter_path(path):
+    normalized = str(path or "").replace("\\", "/")
+    normalized = normalized.replace(":", r"\:")
+    normalized = normalized.replace("'", r"\'")
+    normalized = normalized.replace(",", r"\,")
+    normalized = normalized.replace("[", r"\[").replace("]", r"\]")
+    return normalized
+
+
+def _burn_subtitles_with_ass(input_video_path, output_video_path, subtitle_segments, frame_size):
+    ffmpeg_path = shutil.which("ffmpeg")
+    if not ffmpeg_path:
+        raise RuntimeError("ffmpeg is not available for ASS subtitle rendering")
+
+    ass_path = _write_ass_subtitle_file(subtitle_segments, frame_size)
+    tmp_output_path = f"{output_video_path}.assburn.mp4"
+    escaped_ass_path = _ffmpeg_filter_path(ass_path)
+    escaped_fonts_dir = _ffmpeg_filter_path(PROJECT_FONT_DIR)
+    subtitle_filter = f"subtitles={escaped_ass_path}:fontsdir={escaped_fonts_dir}"
+
+    command = [
+        ffmpeg_path,
+        "-y",
+        "-i",
+        input_video_path,
+        "-vf",
+        subtitle_filter,
+        "-c:v",
+        "libx264",
+        "-preset",
+        VIDEO_PRESET,
+        "-b:v",
+        VIDEO_BITRATE,
+        "-c:a",
+        "copy",
+        tmp_output_path,
+    ]
+
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, check=False)
+        if result.returncode != 0:
+            raise RuntimeError(f"ASS subtitle burn failed: {result.stderr.strip() or result.stdout.strip()}")
+
+        _validate_rendered_video(tmp_output_path)
+        os.replace(tmp_output_path, output_video_path)
+    finally:
+        try:
+            if os.path.exists(ass_path):
+                os.remove(ass_path)
+        except OSError:
+            pass
+        try:
+            if os.path.exists(tmp_output_path):
+                os.remove(tmp_output_path)
+        except OSError:
+            pass
+
+
 def _normalize_animation_style(animation_style):
     normalized = str(animation_style or "").strip().lower()
     if normalized in {"pan", "pulse", "pan_pulse", "none"}:
@@ -774,6 +942,9 @@ def create_music_video(audio_path, image_path=None, output_path=None, animation_
             raise ValueError("Either image_path or source_video_path is required")
 
         subtitle_clips = []
+        subtitle_segments = []
+        use_ass_renderer = False
+        render_output_path = output_path
         video = cover_video.with_audio(audio)
 
         try:
@@ -785,11 +956,17 @@ def create_music_video(audio_path, image_path=None, output_path=None, animation_
                     bool(str(lyrics or "").strip()),
                     output_path,
                 )
-                subtitle_clips = _build_timed_subtitle_clips(subtitle_segments, audio.duration, frame_size)
-                if not subtitle_clips:
+                if not subtitle_segments:
                     subtitle_lines = _build_subtitle_lines(lyrics)
                     logger.info("Falling back to line-based subtitles: lines=%s output=%s", len(subtitle_lines), output_path)
-                    subtitle_clips = _build_subtitle_clips(subtitle_lines, audio.duration, frame_size)
+                    subtitle_segments = _segments_from_subtitle_lines(subtitle_lines, audio.duration)
+
+                use_ass_renderer = _should_use_ass_renderer(subtitle_segments)
+                if use_ass_renderer:
+                    render_output_path = f"{output_path}.base.mp4"
+                    logger.info("Using ASS/libass subtitle renderer for complex script shaping")
+                else:
+                    subtitle_clips = _build_timed_subtitle_clips(subtitle_segments, audio.duration, frame_size)
                 if subtitle_clips:
                     video = CompositeVideoClip([video, *subtitle_clips]).with_audio(audio)
 
@@ -797,7 +974,7 @@ def create_music_video(audio_path, image_path=None, output_path=None, animation_
                 progress_callback("⏳ Creating music video...\nRendering video...")
 
             video.write_videofile(
-                output_path,
+                render_output_path,
                 fps=VIDEO_FPS,
                 codec="libx264",
                 audio_codec="aac",
@@ -805,6 +982,10 @@ def create_music_video(audio_path, image_path=None, output_path=None, animation_
                 audio_bitrate=AUDIO_BITRATE,
                 preset=VIDEO_PRESET,
             )
+            if use_ass_renderer:
+                _burn_subtitles_with_ass(render_output_path, output_path, subtitle_segments, frame_size)
+            elif render_output_path != output_path:
+                os.replace(render_output_path, output_path)
             _validate_rendered_video(output_path)
             if progress_callback:
                 progress_callback("✅ Video created 100%")
@@ -822,6 +1003,11 @@ def create_music_video(audio_path, image_path=None, output_path=None, animation_
 
             time.sleep(VIDEO_RETRY_DELAY_SECONDS)
         finally:
+            if render_output_path and render_output_path != output_path and os.path.exists(render_output_path):
+                try:
+                    os.remove(render_output_path)
+                except OSError:
+                    pass
             video.close()
             cover_video.close()
             audio.close()
