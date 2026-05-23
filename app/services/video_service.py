@@ -57,10 +57,15 @@ JAPANESE_SUBTITLE_FONT_CANDIDATES = [
     *UNICODE_SUBTITLE_FONT_CANDIDATES,
 ]
 CHINESE_SUBTITLE_FONT_CANDIDATES = [
+    "msjh.ttc",
+    "msjhbd.ttc",
+    "mingliub.ttc",
+    "SimsunExtG.ttf",
+    "msyhl.ttc",
     "msyh.ttc",
     "msyhbd.ttc",
-    "simhei.ttf",
     "simsun.ttc",
+    "simhei.ttf",
     *UNICODE_SUBTITLE_FONT_CANDIDATES,
 ]
 KOREAN_SUBTITLE_FONT_CANDIDATES = [
@@ -84,11 +89,19 @@ DEVANAGARI_SUBTITLE_FONT_CANDIDATES = [
 ]
 
 CHINESE_SCRIPT_RANGES = (
+    ("\u3100", "\u312f"),
+    ("\u31a0", "\u31bf"),
     ("\u3400", "\u4dbf"),
     ("\u4e00", "\u9fff"),
     ("\uf900", "\ufaff"),
     ("\u3000", "\u303f"),
     ("\uff00", "\uffef"),
+    ("\U00020000", "\U0002a6df"),
+    ("\U0002a700", "\U0002b73f"),
+    ("\U0002b740", "\U0002b81f"),
+    ("\U0002b820", "\U0002ceaf"),
+    ("\U0002ceb0", "\U0002ebef"),
+    ("\U00030000", "\U0003134f"),
 )
 THAI_SCRIPT_RANGES = (
     ("\u0e00", "\u0e7f"),
