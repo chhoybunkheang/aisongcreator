@@ -6,6 +6,7 @@ import re
 import shutil
 import subprocess
 import time
+import urllib.request
 from functools import lru_cache
 from math import pi, sin
 from textwrap import wrap
@@ -252,6 +253,36 @@ DEVANAGARI_FONTCONFIG_PATTERNS = (
     "sans-serif:lang=hi",
     *DEFAULT_FONTCONFIG_PATTERNS,
 )
+
+
+def _ensure_cjk_font():
+    """Download NotoSansSC-Regular.otf to PROJECT_FONT_DIR at startup if missing."""
+    target = os.path.join(PROJECT_FONT_DIR, "NotoSansSC-Regular.otf")
+    if os.path.isfile(target) and os.path.getsize(target) > 0:
+        return
+    url = (
+        "https://github.com/googlefonts/noto-cjk/raw/main"
+        "/Sans/OTF/SimplifiedChinese/NotoSansSC-Regular.otf"
+    )
+    try:
+        os.makedirs(PROJECT_FONT_DIR, exist_ok=True)
+        logger.info("Downloading CJK subtitle font to %s", target)
+        urllib.request.urlretrieve(url, target)
+        if os.path.getsize(target) > 0:
+            logger.info("CJK subtitle font downloaded successfully (%d bytes)", os.path.getsize(target))
+        else:
+            os.remove(target)
+            logger.warning("CJK font download produced empty file; removed")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("CJK font download failed: %s", exc)
+        try:
+            if os.path.isfile(target):
+                os.remove(target)
+        except OSError:
+            pass
+
+
+_ensure_cjk_font()
 
 
 def _validate_rendered_video(output_path):
