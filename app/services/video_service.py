@@ -4,7 +4,14 @@ import time
 from math import pi, sin
 from textwrap import wrap
 
-from moviepy import AudioFileClip, CompositeVideoClip, ImageClip, TextClip
+from moviepy import (
+    AudioFileClip,
+    CompositeVideoClip,
+    ImageClip,
+    TextClip,
+    VideoFileClip,
+    concatenate_videoclips,
+)
 
 VIDEO_HEIGHT = 540
 VIDEO_FPS = 20
@@ -208,7 +215,30 @@ def _build_animated_cover_clip(image_path, duration, animation_style="pan_pulse"
     return animated_clip, frame_size
 
 
-def create_music_video(audio_path, image_path, output_path, animation_style="pan_pulse", lyrics=None, subtitle_timing=None, subtitles_enabled=True, progress_callback=None):
+def _build_source_video_clip(source_video_path, duration):
+    base_video = VideoFileClip(source_video_path).without_audio().resized(height=VIDEO_HEIGHT)
+    if base_video.duration <= 0:
+        base_video.close()
+        raise ValueError("Uploaded source video has no duration")
+
+    clip_duration = max(float(duration or 0.0), 0.1)
+    frame_size = base_video.size
+
+    if base_video.duration >= clip_duration:
+        return base_video.subclipped(0, clip_duration), frame_size, [base_video]
+
+    segments = []
+    remaining = clip_duration
+    while remaining > 0:
+        segment_duration = min(base_video.duration, remaining)
+        segments.append(base_video.subclipped(0, segment_duration))
+        remaining -= segment_duration
+
+    looped_video = concatenate_videoclips(segments, method="compose").with_duration(clip_duration)
+    return looped_video, looped_video.size, [base_video, *segments]
+
+
+def create_music_video(audio_path, image_path=None, output_path=None, animation_style="pan_pulse", lyrics=None, subtitle_timing=None, subtitles_enabled=True, progress_callback=None, source_video_path=None):
     last_error = None
 
     for attempt in range(1, VIDEO_RETRY_ATTEMPTS + 1):
@@ -219,7 +249,14 @@ def create_music_video(audio_path, image_path, output_path, animation_style="pan
                 progress_callback(f"⏳ Creating music video...\nRetrying render ({attempt}/{VIDEO_RETRY_ATTEMPTS})...")
 
         audio = AudioFileClip(audio_path)
-        cover_video, frame_size = _build_animated_cover_clip(image_path, audio.duration, animation_style=animation_style)
+        source_cleanup_clips = []
+        if source_video_path:
+            cover_video, frame_size, source_cleanup_clips = _build_source_video_clip(source_video_path, audio.duration)
+        elif image_path:
+            cover_video, frame_size = _build_animated_cover_clip(image_path, audio.duration, animation_style=animation_style)
+        else:
+            audio.close()
+            raise ValueError("Either image_path or source_video_path is required")
 
         subtitle_clips = []
         video = cover_video.with_audio(audio)
@@ -268,5 +305,7 @@ def create_music_video(audio_path, image_path, output_path, animation_style="pan
             audio.close()
             for subtitle_clip in subtitle_clips:
                 subtitle_clip.close()
+            for cleanup_clip in source_cleanup_clips:
+                cleanup_clip.close()
 
     raise last_error or Exception("Video creation failed")

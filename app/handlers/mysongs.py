@@ -32,6 +32,7 @@ from app.database.queries import (
     update_song_cover,
     update_song_lyrics,
     update_song_mp3,
+    update_song_source_video,
     update_song_subtitle_timing,
     update_song_video,
 )
@@ -141,14 +142,6 @@ def _friendly_mp3_error_message(error):
     return f"Error generating MP3:\n{error_text}"
 
 
-def _animation_style_keyboard(song_id):
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🌊 Pan Motion", callback_data=f"ms_vidstyle_pan_{song_id}")],
-        [InlineKeyboardButton("💓 Beat Pulse", callback_data=f"ms_vidstyle_pulse_{song_id}")],
-        [InlineKeyboardButton("✨ Pan + Pulse", callback_data=f"ms_vidstyle_pan_pulse_{song_id}")],
-    ])
-
-
 def _video_subtitle_keyboard(song_id):
     return InlineKeyboardMarkup([[
         InlineKeyboardButton("✅ Yes", callback_data=f"ms_vid_yes_{song_id}"),
@@ -158,11 +151,17 @@ def _video_subtitle_keyboard(song_id):
 
 def _cover_source_keyboard(song_id):
     return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("🖼 Upload Image", callback_data=f"ms_cov_upload_{song_id}"),
-            InlineKeyboardButton("🎨 Generate Image", callback_data=f"ms_cov_{song_id}"),
-        ]
+        [InlineKeyboardButton("🖼 Upload Image", callback_data=f"ms_cov_upload_{song_id}")],
+        [InlineKeyboardButton("🎞 Upload Video", callback_data=f"ms_cov_upload_video_{song_id}")],
+        [InlineKeyboardButton("🎨 Generate Image", callback_data=f"ms_cov_{song_id}")],
     ])
+
+
+def _has_visual_source(song):
+    return bool(
+        (song.cover_path and os.path.exists(song.cover_path))
+        or (song.source_video_path and os.path.exists(song.source_video_path))
+    )
 
 
 def _mp3_action_markup(song):
@@ -215,7 +214,7 @@ def _next_step_markup(song):
             InlineKeyboardButton("Generate MP3", callback_data=f"ms_mp3_{sid}"),
             InlineKeyboardButton("Skip", callback_data=f"ms_skip_{sid}"),
         ]])
-    if not song.cover_path or not os.path.exists(song.cover_path):
+    if not _has_visual_source(song):
         return InlineKeyboardMarkup([[
             InlineKeyboardButton("Generate Cover", callback_data=f"ms_cov_{sid}"),
             InlineKeyboardButton("Skip", callback_data=f"ms_skip_{sid}"),
@@ -236,7 +235,7 @@ async def my_songs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     songs = get_user_songs(telegram_id)
     visible_songs = [
         song for song in songs
-        if song.lyrics or song.mp3_path or song.cover_path or song.video_path
+        if song.lyrics or song.mp3_path or song.cover_path or song.source_video_path or song.video_path
     ]
 
     if not visible_songs:
@@ -519,69 +518,21 @@ async def ms_prompt_video_subtitles(update: Update, context: ContextTypes.DEFAUL
         await context.bot.send_message(chat_id=query.message.chat_id, text="Song not found.")
         return
 
-    if not song.mp3_path or not song.cover_path:
+    if not song.mp3_path or not _has_visual_source(song):
         await context.bot.send_message(
             chat_id=query.message.chat_id,
-            text="MP3 and cover image are required before generating a video."
-        )
-        return
-
-    await query.edit_message_text(
-        f"Create video for \"{song.topic}\"\n\nStep 1 of 2: Do you want animation in the video?",
-        reply_markup=InlineKeyboardMarkup([[
-            InlineKeyboardButton("✨ Yes", callback_data=f"ms_vidanim_yes_{song.id}"),
-            InlineKeyboardButton("🖼 No", callback_data=f"ms_vidanim_no_{song.id}"),
-        ]])
-    )
-
-
-async def ms_prompt_video_animation_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await _safe_answer(query)
-
-    parts = query.data.split("_")
-    choice = parts[2]
-    song_id = int(parts[3])
-    song = get_song_by_id(song_id)
-
-    if not song:
-        await context.bot.send_message(chat_id=query.message.chat_id, text="Song not found.")
-        return
-
-    if choice == "yes":
-        await query.edit_message_text(
-            "Choose the animation style for your video:",
-            reply_markup=_animation_style_keyboard(song.id)
+            text="MP3 and a cover image or source video are required before generating a video."
         )
         return
 
     context.user_data["ms_video_animation_style"] = "none"
 
     await query.edit_message_text(
-        "Step 2 of 2: Do you want to add subtitles to the video?\n\n"
-        "Subtitles use extra credits.",
-        reply_markup=_video_subtitle_keyboard(song.id)
-    )
-
-
-async def ms_prompt_video_subtitle_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await _safe_answer(query)
-
-    parts = query.data.split("_")
-    animation_style = parts[2]
-    song_id = int(parts[3])
-    song = get_song_by_id(song_id)
-
-    if not song:
-        await context.bot.send_message(chat_id=query.message.chat_id, text="Song not found.")
-        return
-
-    context.user_data["ms_video_animation_style"] = animation_style
-
-    await query.edit_message_text(
-        "Step 2 of 2: Do you want to add subtitles to the video?\n\n"
-        "Subtitles use extra credits.",
+        (
+            "Step 1 of 1: Do you want to add subtitles to the uploaded video?\n\nSubtitles use extra credits."
+            if song.source_video_path and os.path.exists(song.source_video_path)
+            else "Step 1 of 1: Do you want to add subtitles to the video?\n\nSubtitles use extra credits."
+        ),
         reply_markup=_video_subtitle_keyboard(song.id)
     )
 
@@ -599,10 +550,10 @@ async def ms_gen_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(chat_id=query.message.chat_id, text="Song not found.")
         return
 
-    if not song.mp3_path or not song.cover_path:
+    if not song.mp3_path or not _has_visual_source(song):
         await context.bot.send_message(
             chat_id=query.message.chat_id,
-            text="MP3 and cover image are required before generating a video."
+            text="MP3 and a cover image or source video are required before generating a video."
         )
         return
 
@@ -677,6 +628,7 @@ async def ms_gen_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
             subtitle_timing=subtitle_timing,
             subtitles_enabled=subtitles_enabled,
             progress_callback=progress_callback,
+            source_video_path=song.source_video_path,
         )
         update_song_video(song_id, video_path)
 
@@ -857,10 +809,10 @@ async def mp3_actions(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.chat_data["mysongs_flow_message_id"] = query.message.message_id
         return
 
-    cover_missing = not (song.cover_path and os.path.exists(song.cover_path))
+    cover_missing = not _has_visual_source(song)
     message = f"\"{song.topic}\" has not been converted to video yet."
     if cover_missing:
-        message += " Choose Create Video to generate a cover first, then continue to video creation."
+        message += " Choose Create Video to add a cover image or upload a source video first, then continue to video creation."
     else:
         message += " Choose Create Video to continue with video creation, or Listen to play the MP3."
 
@@ -882,18 +834,16 @@ async def mp3_video_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(chat_id=query.message.chat_id, text="MP3 file not found.")
         return
 
-    if not song.cover_path or not os.path.exists(song.cover_path):
+    if not _has_visual_source(song):
         await query.edit_message_text(
-            f"\"{song.topic}\" needs a cover image before video creation. Choose cover image type:",
+            f"\"{song.topic}\" needs a cover image or source video before video creation. Choose visual source type:",
             reply_markup=_cover_source_keyboard(song.id)
         )
         return
 
     await query.edit_message_text(
         f"The cover image for \"{song.topic}\" is ready.\n\n"
-        "Next you will choose:\n"
-        "1. Animation or no animation\n"
-        "2. Subtitles or no subtitles\n\n"
+        "Next you can choose whether to add subtitles.\n\n"
         "Create the music video now?",
         reply_markup=InlineKeyboardMarkup([[
             InlineKeyboardButton("✅ Yes", callback_data=f"ms_vid_prompt_{song.id}"),
@@ -930,14 +880,22 @@ async def ms_upload_cover(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await _safe_answer(query)
 
-    song_id = int(query.data.split("_")[3])
+    parts = query.data.split("_")
+    upload_mode = "video" if parts[3] == "video" else "image"
+    song_id = int(parts[4] if upload_mode == "video" else parts[3])
     context.user_data["ms_cover_song_id"] = song_id
+    context.user_data["ms_cover_upload_mode"] = upload_mode
+
+    if upload_mode == "video":
+        await query.edit_message_text("🎞 Please upload one video to use as your music video source.")
+        return
 
     await query.edit_message_text("🖼 Please upload one image to use as your cover.")
 
 
 async def ms_receive_uploaded_cover(update: Update, context: ContextTypes.DEFAULT_TYPE):
     song_id = context.user_data.get("ms_cover_song_id")
+    upload_mode = context.user_data.get("ms_cover_upload_mode")
 
     if not song_id:
         return
@@ -948,40 +906,71 @@ async def ms_receive_uploaded_cover(update: Update, context: ContextTypes.DEFAUL
         context.user_data.pop("ms_cover_song_id", None)
         return
 
-    if not update.message.photo:
-        await retry_telegram_call(update.message.reply_text, "❌ Please upload an image.")
+    if update.message.photo:
+        if upload_mode == "video":
+            await retry_telegram_call(update.message.reply_text, "❌ Please upload a video.")
+            return
+
+        photo = update.message.photo[-1]
+        telegram_file = await context.bot.get_file(photo.file_id)
+
+        os.makedirs(GENERATED_COVERS_DIR, exist_ok=True)
+        cover_path = os.path.join(
+            GENERATED_COVERS_DIR,
+            f"upload_{update.effective_user.id}_{uuid.uuid4().hex}.jpg"
+        )
+        await telegram_file.download_to_drive(cover_path)
+
+        update_song_cover(song_id, cover_path)
+        update_song_source_video(song_id, None)
+        context.user_data.pop("ms_cover_song_id", None)
+        context.user_data.pop("ms_cover_upload_mode", None)
+
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=f"✅ Cover image uploaded for \"{song.topic}\". Create the music video now?",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("✅ Yes", callback_data=f"ms_vid_prompt_{song.id}"),
+                InlineKeyboardButton("❌ No", callback_data=f"ms_skip_{song.id}"),
+            ]])
+        )
+        clear_flow_message_tracking(context, state_key="mysongs_flow_message_id")
         return
 
-    photo = update.message.photo[-1]
-    telegram_file = await context.bot.get_file(photo.file_id)
+    video_message = update.message.video
+    document_message = update.message.document
+    if video_message or document_message:
+        if upload_mode == "image":
+            await retry_telegram_call(update.message.reply_text, "❌ Please upload an image.")
+            return
 
-    os.makedirs(GENERATED_COVERS_DIR, exist_ok=True)
-    cover_path = os.path.join(
-        GENERATED_COVERS_DIR,
-        f"upload_{update.effective_user.id}_{uuid.uuid4().hex}.jpg"
-    )
-    await telegram_file.download_to_drive(cover_path)
+        file_id = video_message.file_id if video_message else document_message.file_id
+        telegram_file = await context.bot.get_file(file_id)
 
-    update_song_cover(song_id, cover_path)
-    context.user_data.pop("ms_cover_song_id", None)
-
-    with open(cover_path, "rb") as photo_file:
-        await send_photo_with_status(
-            context.bot,
-            chat_id=update.effective_chat.id,
-            photo=photo_file,
-            caption="🖼 Uploaded Cover Image",
+        os.makedirs(GENERATED_VIDEOS_DIR, exist_ok=True)
+        source_video_path = os.path.join(
+            GENERATED_VIDEOS_DIR,
+            f"source_{update.effective_user.id}_{uuid.uuid4().hex}.mp4"
         )
+        await telegram_file.download_to_drive(source_video_path)
 
-    await context.bot.send_message(
-        chat_id=update.effective_chat.id,
-        text=f"The cover image for \"{song.topic}\" is ready. Create the music video now?",
-        reply_markup=InlineKeyboardMarkup([[
-            InlineKeyboardButton("✅ Yes", callback_data=f"ms_vid_prompt_{song.id}"),
-            InlineKeyboardButton("❌ No", callback_data=f"ms_skip_{song.id}"),
-        ]])
-    )
-    clear_flow_message_tracking(context, state_key="mysongs_flow_message_id")
+        update_song_source_video(song_id, source_video_path)
+        update_song_cover(song_id, None)
+        context.user_data.pop("ms_cover_song_id", None)
+        context.user_data.pop("ms_cover_upload_mode", None)
+
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=f"✅ Source video uploaded for \"{song.topic}\". Create the music video now?",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("✅ Yes", callback_data=f"ms_vid_prompt_{song.id}"),
+                InlineKeyboardButton("❌ No", callback_data=f"ms_skip_{song.id}"),
+            ]])
+        )
+        clear_flow_message_tracking(context, state_key="mysongs_flow_message_id")
+        return
+
+    await retry_telegram_call(update.message.reply_text, "❌ Please upload an image or a video.")
 
 
 async def mp3_to_lyrics(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1098,7 +1087,7 @@ async def watch_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     has_lyrics = bool((song.lyrics or "").strip())
-    if has_lyrics and song.mp3_path and os.path.exists(song.mp3_path) and song.cover_path and os.path.exists(song.cover_path):
+    if has_lyrics and song.mp3_path and os.path.exists(song.mp3_path) and _has_visual_source(song):
         button_text = "Update Subtitles" if song.subtitle_timing else "Add Subtitle"
         await replace_flow_message(
             context,
@@ -1152,8 +1141,8 @@ async def add_subtitle_to_video(update: Update, context: ContextTypes.DEFAULT_TY
         await context.bot.send_message(chat_id=query.message.chat_id, text="MP3 file not found.")
         return
 
-    if not song.cover_path or not os.path.exists(song.cover_path):
-        await context.bot.send_message(chat_id=query.message.chat_id, text="Cover image not found.")
+    if not _has_visual_source(song):
+        await context.bot.send_message(chat_id=query.message.chat_id, text="Cover image or source video not found.")
         return
 
     if not (song.lyrics or "").strip():
@@ -1236,6 +1225,7 @@ async def add_subtitle_to_video(update: Update, context: ContextTypes.DEFAULT_TY
             lyrics=song.lyrics,
             subtitle_timing=subtitle_timing,
             progress_callback=progress_callback,
+            source_video_path=song.source_video_path,
         )
         update_song_video(song_id, video_path)
         await stop_progress_message(progress_task, progress_stop)
@@ -1281,13 +1271,11 @@ song_detail_handler = CallbackQueryHandler(
 
 ms_mp3_handler = CallbackQueryHandler(ms_gen_mp3, pattern=r"^ms_mp3_\d+$")
 ms_cov_handler = CallbackQueryHandler(ms_gen_cover, pattern=r"^ms_cov_\d+$")
-ms_cov_upload_handler = CallbackQueryHandler(ms_upload_cover, pattern=r"^ms_cov_upload_\d+$")
+ms_cov_upload_handler = CallbackQueryHandler(ms_upload_cover, pattern=r"^ms_cov_upload(_video)?_\d+$")
 ms_vid_handler = CallbackQueryHandler(ms_prompt_video_subtitles, pattern=r"^ms_vid_prompt_\d+$")
-ms_vid_animation_handler = CallbackQueryHandler(ms_prompt_video_animation_choice, pattern=r"^ms_vidanim_(yes|no)_\d+$")
-ms_vid_style_handler = CallbackQueryHandler(ms_prompt_video_subtitle_choice, pattern=r"^ms_vidstyle_(pan|pulse|pan_pulse)_\d+$")
 ms_vid_choice_handler = CallbackQueryHandler(ms_gen_video, pattern=r"^ms_vid_(yes|no)_\d+$")
 ms_skip_handler = CallbackQueryHandler(ms_skip, pattern=r"^ms_skip_\d+$")
-ms_uploaded_cover_handler = MessageHandler(filters.PHOTO, ms_receive_uploaded_cover)
+ms_uploaded_cover_handler = MessageHandler(filters.PHOTO | filters.VIDEO | filters.Document.VIDEO, ms_receive_uploaded_cover)
 
 mymp3_handler = MessageHandler(filters.TEXT & filters.Regex(r"^🎵 My MP3$"), my_mp3)
 mymp4_handler = MessageHandler(filters.TEXT & filters.Regex(r"^🎬 My MP4$"), my_mp4)

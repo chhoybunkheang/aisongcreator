@@ -104,10 +104,8 @@ def main():
         ms_mp3_handler,
         ms_receive_uploaded_cover,
         ms_skip_handler,
-        ms_vid_animation_handler,
         ms_vid_choice_handler,
         ms_vid_handler,
-        ms_vid_style_handler,
         mylyrics_handler,
         mymp3_handler,
         mymp4_handler,
@@ -180,8 +178,6 @@ def main():
     app.add_handler(ms_cov_handler)
     app.add_handler(ms_cov_upload_handler)
     app.add_handler(ms_vid_handler)
-    app.add_handler(ms_vid_animation_handler)
-    app.add_handler(ms_vid_style_handler)
     app.add_handler(ms_vid_choice_handler)
     app.add_handler(ms_skip_handler)
     app.add_handler(mp3_actions_handler)
@@ -195,7 +191,7 @@ def main():
     app.add_handler(settings_text_handler)
     app.add_handler(settings_feedback_text_handler)
     app.add_handler(payment_handler)
-    app.add_handler(MessageHandler(filters.PHOTO, photo_router))
+    app.add_handler(MessageHandler(filters.PHOTO | filters.VIDEO | filters.Document.VIDEO, photo_router))
     app.add_handler(approve_callback_handler)
     app.add_handler(reject_callback_handler)
     app.add_handler(approve_handler)

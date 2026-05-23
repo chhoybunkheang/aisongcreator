@@ -41,6 +41,7 @@ from app.database.queries import (
     update_song_cover,
     update_song_lyrics,
     update_song_mp3,
+    update_song_source_video,
     update_song_subtitle_timing,
     update_song_video,
 )
@@ -103,14 +104,6 @@ def _yes_no_keyboard():
     ])
 
 
-def _animation_style_keyboard():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🌊 Pan Motion", callback_data="anim_pan")],
-        [InlineKeyboardButton("💓 Beat Pulse", callback_data="anim_pulse")],
-        [InlineKeyboardButton("✨ Pan + Pulse", callback_data="anim_pan_pulse")],
-    ])
-
-
 def _mp3_caption(title):
     return f"🎵 Title: {title}\nCreated by: {BOT_USERNAME_LABEL}"
 
@@ -164,10 +157,9 @@ def _language_keyboard():
 
 def _cover_source_keyboard():
     return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("🖼 Upload Image", callback_data="cover_upload"),
-            InlineKeyboardButton("🎨 Generate Image", callback_data="cover_generate"),
-        ]
+        [InlineKeyboardButton("🖼 Upload Image", callback_data="cover_upload")],
+        [InlineKeyboardButton("🎞 Upload Video", callback_data="cover_upload_video")],
+        [InlineKeyboardButton("🎨 Generate Image", callback_data="cover_generate")],
     ])
 
 
@@ -1042,8 +1034,16 @@ async def choose_cover_source(update: Update, context: ContextTypes.DEFAULT_TYPE
     await _safe_answer(query)
 
     if query.data == "cover_upload":
+        context.user_data["visual_upload_mode"] = "image"
         await query.edit_message_text(
             "🖼 Please upload one image to use as your cover."
+        )
+        return UPLOAD_COVER
+
+    if query.data == "cover_upload_video":
+        context.user_data["visual_upload_mode"] = "video"
+        await query.edit_message_text(
+            "🎞 Please upload one video to use as your music video source."
         )
         return UPLOAD_COVER
 
@@ -1068,8 +1068,10 @@ async def choose_cover_source(update: Update, context: ContextTypes.DEFAULT_TYPE
             progress_callback=progress_callback,
         )
         context.user_data["cover_image"] = cover_image
+        context.user_data.pop("source_video_path", None)
         if context.user_data.get("song_id"):
             update_song_cover(context.user_data["song_id"], cover_image)
+            update_song_source_video(context.user_data["song_id"], None)
 
         with open(cover_image, "rb") as photo:
             await send_photo_with_status(
@@ -1095,9 +1097,7 @@ async def choose_cover_source(update: Update, context: ContextTypes.DEFAULT_TYPE
             chat_id=query.message.chat_id,
             text=(
                 f"Your cover for \"{topic}\" is ready.\n\n"
-                "Next you will choose:\n"
-                "1. Animation or no animation\n"
-                "2. Subtitles or no subtitles\n\n"
+                "Next you can choose whether to add subtitles.\n\n"
                 "Create video now?"
             ),
             reply_markup=_yes_no_keyboard(),
@@ -1123,48 +1123,82 @@ async def choose_cover_source(update: Update, context: ContextTypes.DEFAULT_TYPE
 # RECEIVE UPLOADED COVER
 # -----------------------------
 async def receive_uploaded_cover(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    upload_mode = context.user_data.pop("visual_upload_mode", None)
 
-    if not update.message.photo:
-        await update.message.reply_text("❌ Please upload an image.")
-        return UPLOAD_COVER
+    if update.message.photo:
+        if upload_mode == "video":
+            await update.message.reply_text("❌ Please upload a video.")
+            return UPLOAD_COVER
 
-    photo = update.message.photo[-1]
-    telegram_file = await context.bot.get_file(photo.file_id)
+        photo = update.message.photo[-1]
+        telegram_file = await context.bot.get_file(photo.file_id)
 
-    os.makedirs(GENERATED_COVERS_DIR, exist_ok=True)
-    cover_path = os.path.join(
-        GENERATED_COVERS_DIR,
-        f"upload_{update.effective_user.id}_{uuid.uuid4().hex}.jpg"
-    )
-    await telegram_file.download_to_drive(cover_path)
-
-    context.user_data["cover_image"] = cover_path
-    if context.user_data.get("song_id"):
-        update_song_cover(context.user_data["song_id"], cover_path)
-
-    with open(cover_path, "rb") as photo_file:
-        await send_photo_with_status(
-            context.bot,
-            chat_id=update.effective_chat.id,
-            photo=photo_file,
-            caption="🖼 Uploaded Cover Image",
+        os.makedirs(GENERATED_COVERS_DIR, exist_ok=True)
+        cover_path = os.path.join(
+            GENERATED_COVERS_DIR,
+            f"upload_{update.effective_user.id}_{uuid.uuid4().hex}.jpg"
         )
+        await telegram_file.download_to_drive(cover_path)
 
-    await replace_flow_message(
-        context,
-        context.bot.send_message,
-        chat_id=update.effective_chat.id,
-        text=(
-            f"Your cover for \"{context.user_data.get('topic', 'your song')}\" is ready.\n\n"
-            "Next you will choose:\n"
-            "1. Animation or no animation\n"
-            "2. Subtitles or no subtitles\n\n"
-            "Create video now?"
-        ),
-        reply_markup=_yes_no_keyboard(),
-        state_key="song_flow_message_id",
-    )
-    return CONFIRM_VIDEO
+        context.user_data["cover_image"] = cover_path
+        context.user_data.pop("source_video_path", None)
+        if context.user_data.get("song_id"):
+            update_song_cover(context.user_data["song_id"], cover_path)
+            update_song_source_video(context.user_data["song_id"], None)
+
+        await replace_flow_message(
+            context,
+            context.bot.send_message,
+            chat_id=update.effective_chat.id,
+            text=(
+                f"✅ Cover image uploaded for \"{context.user_data.get('topic', 'your song')}\".\n\n"
+                "Next you can choose whether to add subtitles.\n\n"
+                "Create video now?"
+            ),
+            reply_markup=_yes_no_keyboard(),
+            state_key="song_flow_message_id",
+        )
+        return CONFIRM_VIDEO
+
+    video_message = update.message.video
+    document_message = update.message.document
+    if video_message or document_message:
+        if upload_mode == "image":
+            await update.message.reply_text("❌ Please upload an image.")
+            return UPLOAD_COVER
+
+        file_id = video_message.file_id if video_message else document_message.file_id
+        telegram_file = await context.bot.get_file(file_id)
+
+        os.makedirs(GENERATED_VIDEOS_DIR, exist_ok=True)
+        source_video_path = os.path.join(
+            GENERATED_VIDEOS_DIR,
+            f"source_{update.effective_user.id}_{uuid.uuid4().hex}.mp4"
+        )
+        await telegram_file.download_to_drive(source_video_path)
+
+        context.user_data["source_video_path"] = source_video_path
+        context.user_data.pop("cover_image", None)
+        if context.user_data.get("song_id"):
+            update_song_source_video(context.user_data["song_id"], source_video_path)
+            update_song_cover(context.user_data["song_id"], None)
+
+        await replace_flow_message(
+            context,
+            context.bot.send_message,
+            chat_id=update.effective_chat.id,
+            text=(
+                f"✅ Source video uploaded for \"{context.user_data.get('topic', 'your song')}\".\n\n"
+                "Next you can choose whether to add subtitles.\n\n"
+                "Create video now?"
+            ),
+            reply_markup=_yes_no_keyboard(),
+            state_key="song_flow_message_id",
+        )
+        return CONFIRM_VIDEO
+
+    await update.message.reply_text("❌ Please upload an image or a video.")
+    return UPLOAD_COVER
 
 
 # -----------------------------
@@ -1176,65 +1210,24 @@ async def confirm_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _safe_answer(query)
 
     user = get_user(query.from_user.id)
+    source_video_path = context.user_data.get("source_video_path")
 
-    if not context.user_data.get("video_animation_prompt_pending") and not context.user_data.get("video_animation_style_prompt_pending") and not context.user_data.get("video_subtitle_prompt_pending"):
+    if not context.user_data.get("video_subtitle_prompt_pending"):
         if query.data == "no":
-            # Remove the current message and show previous button (do not reply video again)
             try:
                 await query.delete_message()
             except Exception:
                 pass
-            # Optionally, you can re-show the previous animation style or subtitle prompt if needed
             return ConversationHandler.END
-
-        context.user_data["video_animation_prompt_pending"] = True
-        await query.edit_message_text(
-            f"Create video for \"{context.user_data.get('topic', 'your song')}\"\n\n"
-            "Step 1 of 2: Do you want animation in the video?",
-            reply_markup=_yes_no_keyboard()
-        )
-        return CONFIRM_VIDEO
-
-    if context.user_data.get("video_animation_prompt_pending"):
-        context.user_data.pop("video_animation_prompt_pending", None)
-
-        if query.data == "yes":
-            context.user_data["video_animation_style_prompt_pending"] = True
-            await query.edit_message_text(
-                "Choose the animation style for your video:",
-                reply_markup=_animation_style_keyboard()
-            )
-            return CONFIRM_VIDEO
 
         context.user_data["video_animation_style"] = "none"
         context.user_data["video_subtitle_prompt_pending"] = True
         await query.edit_message_text(
-            "Step 2 of 2: Do you want to add subtitles to the video?\n\n"
-            "Subtitles use extra credits.",
-            reply_markup=_yes_no_keyboard()
-        )
-        return CONFIRM_VIDEO
-
-    if context.user_data.get("video_animation_style_prompt_pending"):
-        animation_map = {
-            "anim_pan": "pan",
-            "anim_pulse": "pulse",
-            "anim_pan_pulse": "pan_pulse",
-        }
-        animation_style = animation_map.get(query.data)
-        if not animation_style:
-            await query.edit_message_text(
-                "Choose the animation style for your video:",
-                reply_markup=_animation_style_keyboard()
-            )
-            return CONFIRM_VIDEO
-
-        context.user_data.pop("video_animation_style_prompt_pending", None)
-        context.user_data["video_animation_style"] = animation_style
-        context.user_data["video_subtitle_prompt_pending"] = True
-        await query.edit_message_text(
-            "Step 2 of 2: Do you want to add subtitles to the video?\n\n"
-            "Subtitles use extra credits.",
+            (
+                "Step 1 of 1: Do you want to add subtitles to the uploaded video?\n\nSubtitles use extra credits."
+                if source_video_path
+                else "Step 1 of 1: Do you want to add subtitles to the video?\n\nSubtitles use extra credits."
+            ),
             reply_markup=_yes_no_keyboard()
         )
         return CONFIRM_VIDEO
@@ -1264,7 +1257,7 @@ async def confirm_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return BUY_CREDITS
 
     mp3_file = context.user_data["mp3_file"]
-    cover_image = context.user_data["cover_image"]
+    cover_image = context.user_data.get("cover_image")
     topic = context.user_data["topic"]
     subtitle_timing = None
 
@@ -1317,6 +1310,7 @@ async def confirm_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
             subtitle_timing=subtitle_timing,
             subtitles_enabled=subtitles_enabled,
             progress_callback=progress_callback,
+            source_video_path=source_video_path,
         )
         if context.user_data.get("song_id"):
             update_song_video(context.user_data["song_id"], video_path)
@@ -1446,7 +1440,7 @@ song_handler = ConversationHandler(
             CallbackQueryHandler(cancel_flow_handler, pattern=r"^cancel_flow$")
         ],
         UPLOAD_COVER: [
-            MessageHandler(filters.PHOTO, receive_uploaded_cover),
+            MessageHandler(filters.PHOTO | filters.VIDEO | filters.Document.VIDEO, receive_uploaded_cover),
             CallbackQueryHandler(cancel_flow_handler, pattern=r"^cancel_flow$")
         ],
         CONFIRM_VIDEO: [

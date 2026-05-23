@@ -38,6 +38,7 @@ def migrate_db():
         "subtitle_timing": "TEXT",
         "mp3_path": "VARCHAR",
         "cover_path": "VARCHAR",
+        "source_video_path": "VARCHAR",
         "video_path": "VARCHAR",
     }
     with engine.connect() as conn:

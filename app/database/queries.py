@@ -66,7 +66,7 @@ def _prune_empty_songs(db, user_id):
 
     deleted_count = 0
     for song in songs:
-        if song.lyrics or song.mp3_path or song.cover_path or song.video_path:
+        if song.lyrics or song.mp3_path or song.cover_path or song.source_video_path or song.video_path:
             continue
 
         db.delete(song)
@@ -180,6 +180,22 @@ def update_song_cover(song_id, cover_path):
 
     if song:
         song.cover_path = cover_path
+        db.commit()
+
+    db.close()
+
+
+# -----------------------------------
+# UPDATE SONG SOURCE VIDEO PATH
+# -----------------------------------
+def update_song_source_video(song_id, source_video_path):
+
+    db = SessionLocal()
+
+    song = db.query(Song).filter(Song.id == song_id).first()
+
+    if song:
+        song.source_video_path = source_video_path
         db.commit()
 
     db.close()
@@ -937,6 +953,7 @@ def reset_user_song_data(telegram_id):
     for song in songs:
         _delete_file_if_exists(song.mp3_path)
         _delete_file_if_exists(song.cover_path)
+        _delete_file_if_exists(song.source_video_path)
         _delete_file_if_exists(song.video_path)
         db.delete(song)
         deleted_count += 1

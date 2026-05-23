@@ -58,6 +58,8 @@ class Song(Base):
 
     cover_path = Column(String, nullable=True)
 
+    source_video_path = Column(String, nullable=True)
+
     video_path = Column(String, nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow)
