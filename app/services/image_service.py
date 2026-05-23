@@ -1,5 +1,6 @@
 import io
 import os
+import re
 import uuid
 
 import httpx
@@ -23,6 +24,8 @@ _MAX_RETRIES = 3
 _RETRY_DELAY = 5  # seconds between retries
 _MAX_COVER_SIZE = (768, 768)
 _COVER_QUALITY = 86
+_MAX_LYRIC_LINES = 4
+_MAX_LINE_LENGTH = 140
 
 
 def _save_optimized_cover(image_data):
@@ -44,6 +47,27 @@ def _save_optimized_cover(image_data):
     return filepath
 
 
+def _build_lyric_excerpt(lyrics):
+    cleaned_lines = []
+
+    for raw_line in (lyrics or "").splitlines():
+        line = (raw_line or "").strip()
+        if not line:
+            continue
+        if re.fullmatch(r"\[[^\]]+\]", line):
+            continue
+
+        compact_line = re.sub(r"\s+", " ", line)
+        cleaned_lines.append(compact_line[:_MAX_LINE_LENGTH])
+        if len(cleaned_lines) >= _MAX_LYRIC_LINES:
+            break
+
+    if not cleaned_lines:
+        return ""
+
+    return "\n".join(f"- {line}" for line in cleaned_lines)
+
+
 # -----------------------------------
 # GENERATE COVER IMAGE
 # -----------------------------------
@@ -51,22 +75,41 @@ def generate_cover_image(
     topic,
     mood,
     style,
+    description="",
+    lyrics="",
+    language="",
     progress_callback=None,
 ):
 
+    lyric_excerpt = _build_lyric_excerpt(lyrics)
+    description = (description or "").strip()
+    language = (language or "").strip()
+    mood = (mood or "").strip()
+
+    contextual_sections = [
+        f"Song Topic:\n{topic}",
+        f"Mood:\n{mood or 'Not specified'}",
+        f"Music Style:\n{style}",
+    ]
+
+    if language:
+        contextual_sections.append(f"Song Language:\n{language}")
+
+    if description:
+        contextual_sections.append(f"Extra Song Context:\n{description}")
+
+    if lyric_excerpt:
+        contextual_sections.append(f"Lyric Excerpt:\n{lyric_excerpt}")
+
     prompt = f"""
-    Create a beautiful professional music cover image.
+    Create a beautiful professional music cover image that fits this specific song, not a generic music poster.
 
-    Song Topic:
-    {topic}
-
-    Mood:
-    {mood}
-
-    Music Style:
-    {style}
+    {chr(10).join(contextual_sections)}
 
     Requirements:
+    - reflect the exact emotional tone, setting, and symbolism implied by the song details
+    - if lyrics suggest a scene, relationship, memory, place, or time of day, show that visually
+    - prefer one strong visual concept over a random collage
     - cinematic
     - emotional
     - high quality
@@ -74,7 +117,10 @@ def generate_cover_image(
     - suitable for Spotify
     - attractive composition
     - detailed lighting
+    - avoid unrelated microphones, instruments, or performers unless strongly implied by the song
     - no text
+    - no logos
+    - no watermark
     """
 
     import time

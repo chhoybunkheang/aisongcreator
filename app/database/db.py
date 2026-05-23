@@ -40,6 +40,7 @@ def migrate_db():
         "cover_path": "VARCHAR",
         "source_video_path": "VARCHAR",
         "video_path": "VARCHAR",
+        "description": "TEXT",
     }
     with engine.connect() as conn:
         for col, col_type in new_columns.items():

@@ -454,6 +454,9 @@ async def ms_gen_cover(update: Update, context: ContextTypes.DEFAULT_TYPE):
             topic=song.topic,
             mood=song.mood,
             style=song.style,
+            description=song.description,
+            lyrics=song.lyrics,
+            language=song.language,
             progress_callback=progress_callback,
         )
         update_song_cover(song_id, cover_image)

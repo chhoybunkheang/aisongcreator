@@ -463,6 +463,7 @@ def _save_lyrics_draft(context, telegram_id):
         style=context.user_data["style"],
         topic=context.user_data["topic"],
         mood=context.user_data["mood"],
+        description=context.user_data.get("description", ""),
         language=context.user_data["language"],
         lyrics=context.user_data["lyrics"],
     )
@@ -1126,7 +1127,12 @@ async def choose_cover_source(update: Update, context: ContextTypes.DEFAULT_TYPE
     try:
         cover_image = await asyncio.to_thread(
             generate_cover_image,
-            topic=topic, mood=mood, style=style,
+            topic=topic,
+            mood=mood,
+            style=style,
+            description=context.user_data.get("description", ""),
+            lyrics=context.user_data.get("lyrics", ""),
+            language=context.user_data.get("language", ""),
             progress_callback=progress_callback,
         )
         context.user_data["cover_image"] = cover_image

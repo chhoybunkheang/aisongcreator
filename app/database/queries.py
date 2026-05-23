@@ -117,6 +117,7 @@ def save_song(
     style,
     topic,
     mood,
+    description,
     language,
     lyrics
 ):
@@ -138,6 +139,7 @@ def save_song(
         style=style,
         topic=topic,
         mood=mood,
+        description=description,
         language=language,
         lyrics=lyrics,
     )

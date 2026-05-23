@@ -48,6 +48,8 @@ class Song(Base):
 
     mood = Column(String)
 
+    description = Column(Text, nullable=True)
+
     language = Column(String)
 
     lyrics = Column(Text)
