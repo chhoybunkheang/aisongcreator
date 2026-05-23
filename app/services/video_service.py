@@ -1,5 +1,6 @@
 import json
 import os
+import subprocess
 import time
 from functools import lru_cache
 from math import pi, sin
@@ -41,17 +42,22 @@ FONT_SEARCH_DIRS = [
     "/System/Library/Fonts",
 ]
 DEFAULT_SUBTITLE_FONT_CANDIDATES = [
+    "Noto Sans",
+    "DejaVu Sans",
     "NotoSans-Regular.ttf",
     "DejaVuSans.ttf",
     "segoeui.ttf",
     "arial.ttf",
 ]
 UNICODE_SUBTITLE_FONT_CANDIDATES = [
+    "Noto Sans Symbols",
     "NotoSansSymbols-Regular.ttf",
     "arialuni.ttf",
     *DEFAULT_SUBTITLE_FONT_CANDIDATES,
 ]
 KHMER_SUBTITLE_FONT_CANDIDATES = [
+    "Noto Sans Khmer",
+    "Noto Sans Khmer UI",
     "NotoSansKhmer-Regular.ttf",
     "NotoSansKhmerUI-Regular.ttf",
     "KhmerUI.ttf",
@@ -60,6 +66,8 @@ KHMER_SUBTITLE_FONT_CANDIDATES = [
     *UNICODE_SUBTITLE_FONT_CANDIDATES,
 ]
 THAI_SUBTITLE_FONT_CANDIDATES = [
+    "Noto Sans Thai",
+    "Noto Serif Thai",
     "NotoSansThai-Regular.ttf",
     "NotoSerifThai-Regular.ttf",
     "LeelawUI.ttf",
@@ -68,6 +76,9 @@ THAI_SUBTITLE_FONT_CANDIDATES = [
     *UNICODE_SUBTITLE_FONT_CANDIDATES,
 ]
 JAPANESE_SUBTITLE_FONT_CANDIDATES = [
+    "Noto Sans CJK JP",
+    "Noto Sans JP",
+    "Source Han Sans",
     "NotoSansCJK-Regular.ttc",
     "NotoSansJP-Regular.otf",
     "SourceHanSans-Regular.otf",
@@ -78,6 +89,11 @@ JAPANESE_SUBTITLE_FONT_CANDIDATES = [
     *UNICODE_SUBTITLE_FONT_CANDIDATES,
 ]
 CHINESE_SUBTITLE_FONT_CANDIDATES = [
+    "Noto Sans CJK SC",
+    "Noto Serif CJK SC",
+    "WenQuanYi Zen Hei",
+    "WenQuanYi Micro Hei",
+    "Noto Sans CJK",
     "NotoSansCJK-Regular.ttc",
     "NotoSansSC-Regular.otf",
     "NotoSansSC-Regular.ttf",
@@ -100,6 +116,9 @@ CHINESE_SUBTITLE_FONT_CANDIDATES = [
     *UNICODE_SUBTITLE_FONT_CANDIDATES,
 ]
 KOREAN_SUBTITLE_FONT_CANDIDATES = [
+    "Noto Sans CJK KR",
+    "Noto Sans KR",
+    "Source Han Sans",
     "NotoSansCJK-Regular.ttc",
     "NotoSansKR-Regular.otf",
     "SourceHanSans-Regular.otf",
@@ -108,6 +127,8 @@ KOREAN_SUBTITLE_FONT_CANDIDATES = [
     *UNICODE_SUBTITLE_FONT_CANDIDATES,
 ]
 ARABIC_SUBTITLE_FONT_CANDIDATES = [
+    "Noto Naskh Arabic",
+    "Noto Sans Arabic",
     "NotoNaskhArabic-Regular.ttf",
     "NotoSansArabic-Regular.ttf",
     "arialuni.ttf",
@@ -115,12 +136,15 @@ ARABIC_SUBTITLE_FONT_CANDIDATES = [
     *DEFAULT_SUBTITLE_FONT_CANDIDATES,
 ]
 HEBREW_SUBTITLE_FONT_CANDIDATES = [
+    "Noto Sans Hebrew",
     "NotoSansHebrew-Regular.ttf",
     "arialuni.ttf",
     "tahoma.ttf",
     *DEFAULT_SUBTITLE_FONT_CANDIDATES,
 ]
 DEVANAGARI_SUBTITLE_FONT_CANDIDATES = [
+    "Noto Sans Devanagari",
+    "Noto Serif Devanagari",
     "NotoSansDevanagari-Regular.ttf",
     "NotoSerifDevanagari-Regular.ttf",
     "arialuni.ttf",
@@ -211,7 +235,34 @@ def _font_path(font_name):
     if os.path.isabs(font_name):
         return font_name if os.path.exists(font_name) else None
 
-    return _available_font_index().get(str(font_name).lower())
+    indexed_path = _available_font_index().get(str(font_name).lower())
+    if indexed_path:
+        return indexed_path
+
+    return _fontconfig_match(font_name)
+
+
+@lru_cache(maxsize=256)
+def _fontconfig_match(font_name):
+    if not font_name or os.name == "nt":
+        return None
+
+    if os.path.sep in str(font_name):
+        return None
+
+    try:
+        result = subprocess.run(
+            ["fc-match", "-f", "%{file}", str(font_name)],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+    matched_path = (result.stdout or "").strip()
+    return matched_path if matched_path and os.path.exists(matched_path) else None
 
 
 def _contains_range(text, start, end):
