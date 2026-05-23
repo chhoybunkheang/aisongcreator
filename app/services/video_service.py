@@ -37,8 +37,11 @@ PULSE_BEATS_PER_SECOND = 1.9
 PULSE_SCALE_AMOUNT = 0.035
 
 WINDOWS_FONTS_DIR = os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts")
+PROJECT_ROOT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+PROJECT_FONT_DIR = os.path.join(PROJECT_ROOT_DIR, "fonts")
 FONT_SEARCH_DIRS = [
     os.environ.get("SUBTITLE_FONT_DIR", "").strip(),
+    PROJECT_FONT_DIR,
     WINDOWS_FONTS_DIR,
     "/usr/share/fonts",
     "/usr/local/share/fonts",

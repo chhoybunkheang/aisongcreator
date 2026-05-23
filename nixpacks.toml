@@ -8,5 +8,7 @@ aptPkgs = [
 
 [phases.build]
 cmds = [
+  "mkdir -p fonts",
+  "python -c \"import pathlib, urllib.request; target = pathlib.Path('fonts/NotoSansSC-Regular.otf'); target.parent.mkdir(parents=True, exist_ok=True); urllib.request.urlretrieve('https://github.com/googlefonts/noto-cjk/raw/main/Sans/OTF/SimplifiedChinese/NotoSansSC-Regular.otf', target) if not target.exists() else None\"",
   "fc-cache -f -v >/dev/null 2>&1 || true"
 ]
