@@ -799,8 +799,30 @@ def _ffmpeg_filter_path(path):
     return normalized
 
 
-def _burn_subtitles_with_ass(input_video_path, output_video_path, subtitle_segments, frame_size):
+@lru_cache(maxsize=1)
+def _ffmpeg_binary():
     ffmpeg_path = shutil.which("ffmpeg")
+    if ffmpeg_path:
+        return ffmpeg_path
+
+    for candidate in ("/usr/bin/ffmpeg", "/usr/local/bin/ffmpeg"):
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+
+    try:
+        import imageio_ffmpeg  # type: ignore
+
+        ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
+        if ffmpeg_path and os.path.isfile(ffmpeg_path) and os.access(ffmpeg_path, os.X_OK):
+            return ffmpeg_path
+    except Exception:  # noqa: BLE001
+        pass
+
+    return None
+
+
+def _burn_subtitles_with_ass(input_video_path, output_video_path, subtitle_segments, frame_size):
+    ffmpeg_path = _ffmpeg_binary()
     if not ffmpeg_path:
         raise RuntimeError("ffmpeg is not available for ASS subtitle rendering")
 
@@ -964,9 +986,17 @@ def create_music_video(audio_path, image_path=None, output_path=None, animation_
 
                 use_ass_renderer = _should_use_ass_renderer(subtitle_segments)
                 if use_ass_renderer:
-                    render_output_path = f"{output_path}.base.mp4"
-                    logger.info("Using ASS/libass subtitle renderer for complex script shaping")
+                    if _ffmpeg_binary():
+                        render_output_path = f"{output_path}.base.mp4"
+                        logger.info("Using ASS/libass subtitle renderer for complex script shaping")
+                    else:
+                        use_ass_renderer = False
+                        logger.warning(
+                            "ASS subtitle renderer unavailable (ffmpeg missing); falling back to MoviePy subtitle renderer"
+                        )
                 else:
+                    subtitle_clips = _build_timed_subtitle_clips(subtitle_segments, audio.duration, frame_size)
+                if not use_ass_renderer and not subtitle_clips:
                     subtitle_clips = _build_timed_subtitle_clips(subtitle_segments, audio.duration, frame_size)
                 if subtitle_clips:
                     video = CompositeVideoClip([video, *subtitle_clips]).with_audio(audio)
