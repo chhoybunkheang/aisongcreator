@@ -1,6 +1,7 @@
 import json
 import os
 import time
+from functools import lru_cache
 from math import pi, sin
 from textwrap import wrap
 
@@ -29,27 +30,47 @@ PULSE_BEATS_PER_SECOND = 1.9
 PULSE_SCALE_AMOUNT = 0.035
 
 WINDOWS_FONTS_DIR = os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts")
+FONT_SEARCH_DIRS = [
+    os.environ.get("SUBTITLE_FONT_DIR", "").strip(),
+    WINDOWS_FONTS_DIR,
+    "/usr/share/fonts",
+    "/usr/local/share/fonts",
+    os.path.expanduser("~/.fonts"),
+    os.path.expanduser("~/.local/share/fonts"),
+    "/Library/Fonts",
+    "/System/Library/Fonts",
+]
 DEFAULT_SUBTITLE_FONT_CANDIDATES = [
+    "NotoSans-Regular.ttf",
+    "DejaVuSans.ttf",
     "segoeui.ttf",
     "arial.ttf",
 ]
 UNICODE_SUBTITLE_FONT_CANDIDATES = [
+    "NotoSansSymbols-Regular.ttf",
     "arialuni.ttf",
     *DEFAULT_SUBTITLE_FONT_CANDIDATES,
 ]
 KHMER_SUBTITLE_FONT_CANDIDATES = [
+    "NotoSansKhmer-Regular.ttf",
+    "NotoSansKhmerUI-Regular.ttf",
     "KhmerUI.ttf",
     "DaunPenh.ttf",
     "MoolBoran.ttf",
     *UNICODE_SUBTITLE_FONT_CANDIDATES,
 ]
 THAI_SUBTITLE_FONT_CANDIDATES = [
+    "NotoSansThai-Regular.ttf",
+    "NotoSerifThai-Regular.ttf",
     "LeelawUI.ttf",
     "LeelaUIb.ttf",
     "tahoma.ttf",
     *UNICODE_SUBTITLE_FONT_CANDIDATES,
 ]
 JAPANESE_SUBTITLE_FONT_CANDIDATES = [
+    "NotoSansCJK-Regular.ttc",
+    "NotoSansJP-Regular.otf",
+    "SourceHanSans-Regular.otf",
     "YuGothR.ttc",
     "YuGothM.ttc",
     "msgothic.ttc",
@@ -57,6 +78,16 @@ JAPANESE_SUBTITLE_FONT_CANDIDATES = [
     *UNICODE_SUBTITLE_FONT_CANDIDATES,
 ]
 CHINESE_SUBTITLE_FONT_CANDIDATES = [
+    "NotoSansCJK-Regular.ttc",
+    "NotoSansSC-Regular.otf",
+    "NotoSansSC-Regular.ttf",
+    "NotoSerifCJK-Regular.ttc",
+    "SourceHanSansSC-Regular.otf",
+    "SourceHanSans-Regular.otf",
+    "WenQuanYi Zen Hei.ttf",
+    "wqy-zenhei.ttc",
+    "WenQuanYi Micro Hei.ttf",
+    "wqy-microhei.ttc",
     "msyh.ttc",
     "msyhl.ttc",
     "msyhbd.ttc",
@@ -69,21 +100,29 @@ CHINESE_SUBTITLE_FONT_CANDIDATES = [
     *UNICODE_SUBTITLE_FONT_CANDIDATES,
 ]
 KOREAN_SUBTITLE_FONT_CANDIDATES = [
+    "NotoSansCJK-Regular.ttc",
+    "NotoSansKR-Regular.otf",
+    "SourceHanSans-Regular.otf",
     "malgun.ttf",
     "malgunbd.ttf",
     *UNICODE_SUBTITLE_FONT_CANDIDATES,
 ]
 ARABIC_SUBTITLE_FONT_CANDIDATES = [
+    "NotoNaskhArabic-Regular.ttf",
+    "NotoSansArabic-Regular.ttf",
     "arialuni.ttf",
     "tahoma.ttf",
     *DEFAULT_SUBTITLE_FONT_CANDIDATES,
 ]
 HEBREW_SUBTITLE_FONT_CANDIDATES = [
+    "NotoSansHebrew-Regular.ttf",
     "arialuni.ttf",
     "tahoma.ttf",
     *DEFAULT_SUBTITLE_FONT_CANDIDATES,
 ]
 DEVANAGARI_SUBTITLE_FONT_CANDIDATES = [
+    "NotoSansDevanagari-Regular.ttf",
+    "NotoSerifDevanagari-Regular.ttf",
     "arialuni.ttf",
     *DEFAULT_SUBTITLE_FONT_CANDIDATES,
 ]
@@ -148,9 +187,31 @@ def _is_retryable_video_error(error):
     return any(marker in error_text for marker in retry_markers)
 
 
+@lru_cache(maxsize=1)
+def _available_font_index():
+    font_index = {}
+
+    for search_dir in FONT_SEARCH_DIRS:
+        if not search_dir or not os.path.isdir(search_dir):
+            continue
+
+        for root, _dirs, files in os.walk(search_dir):
+            for file_name in files:
+                lower_name = file_name.lower()
+                if lower_name not in font_index:
+                    font_index[lower_name] = os.path.join(root, file_name)
+
+    return font_index
+
+
 def _font_path(font_name):
-    font_path = os.path.join(WINDOWS_FONTS_DIR, font_name)
-    return font_path if os.path.exists(font_path) else None
+    if not font_name:
+        return None
+
+    if os.path.isabs(font_name):
+        return font_name if os.path.exists(font_name) else None
+
+    return _available_font_index().get(str(font_name).lower())
 
 
 def _contains_range(text, start, end):
