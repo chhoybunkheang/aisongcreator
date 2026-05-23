@@ -108,6 +108,7 @@ JAPANESE_SUBTITLE_FONT_CANDIDATES = [
     "Noto Sans CJK JP",
     "Noto Sans JP",
     "Source Han Sans",
+    "NotoSansCJKjp-Regular.otf",
     "NotoSansCJK-Regular.ttc",
     "NotoSansJP-Regular.otf",
     "SourceHanSans-Regular.otf",
@@ -256,31 +257,42 @@ DEVANAGARI_FONTCONFIG_PATTERNS = (
 )
 
 
-def _ensure_cjk_font():
-    """Download NotoSansCJKsc-Regular.otf to PROJECT_FONT_DIR at startup if missing."""
-    target = os.path.join(PROJECT_FONT_DIR, "NotoSansCJKsc-Regular.otf")
-    if os.path.isfile(target) and os.path.getsize(target) > 0:
-        return
-    url = (
+_STARTUP_FONT_DOWNLOADS = (
+    (
+        "NotoSansCJKsc-Regular.otf",
         "https://github.com/notofonts/noto-cjk/raw/main"
-        "/Sans/OTF/SimplifiedChinese/NotoSansCJKsc-Regular.otf"
-    )
-    try:
-        os.makedirs(PROJECT_FONT_DIR, exist_ok=True)
-        logger.info("Downloading CJK subtitle font to %s", target)
-        urllib.request.urlretrieve(url, target)
-        if os.path.getsize(target) > 0:
-            logger.info("CJK subtitle font downloaded successfully (%d bytes)", os.path.getsize(target))
-        else:
-            os.remove(target)
-            logger.warning("CJK font download produced empty file; removed")
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("CJK font download failed: %s", exc)
+        "/Sans/OTF/SimplifiedChinese/NotoSansCJKsc-Regular.otf",
+    ),
+    (
+        "NotoSansCJKjp-Regular.otf",
+        "https://github.com/notofonts/noto-cjk/raw/main"
+        "/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf",
+    ),
+)
+
+
+def _ensure_cjk_font():
+    """Download CJK subtitle fonts to PROJECT_FONT_DIR at startup if missing."""
+    os.makedirs(PROJECT_FONT_DIR, exist_ok=True)
+    for filename, url in _STARTUP_FONT_DOWNLOADS:
+        target = os.path.join(PROJECT_FONT_DIR, filename)
+        if os.path.isfile(target) and os.path.getsize(target) > 0:
+            continue
         try:
-            if os.path.isfile(target):
+            logger.info("Downloading subtitle font to %s", target)
+            urllib.request.urlretrieve(url, target)
+            if os.path.getsize(target) > 0:
+                logger.info("Subtitle font downloaded: %s (%d bytes)", filename, os.path.getsize(target))
+            else:
                 os.remove(target)
-        except OSError:
-            pass
+                logger.warning("Font download produced empty file; removed: %s", filename)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Font download failed for %s: %s", filename, exc)
+            try:
+                if os.path.isfile(target):
+                    os.remove(target)
+            except OSError:
+                pass
 
 
 _ensure_cjk_font()
