@@ -416,6 +416,21 @@ def _subtitle_preview(text, limit=80):
     return f"{normalized_text[:limit]}..."
 
 
+@lru_cache(maxsize=1)
+def _log_project_font_dir_state():
+    try:
+        font_entries = sorted(os.listdir(PROJECT_FONT_DIR)) if os.path.isdir(PROJECT_FONT_DIR) else []
+    except OSError:
+        font_entries = []
+
+    logger.info(
+        "Project font dir state: dir=%s exists=%s files=%s",
+        PROJECT_FONT_DIR,
+        os.path.isdir(PROJECT_FONT_DIR),
+        font_entries,
+    )
+
+
 @lru_cache(maxsize=512)
 def _log_subtitle_render_choice(source_text, display_text, font_path, method):
     logger.info(
@@ -672,6 +687,7 @@ def _build_source_video_clip(source_video_path, duration):
 
 def create_music_video(audio_path, image_path=None, output_path=None, animation_style="pan_pulse", lyrics=None, subtitle_timing=None, subtitles_enabled=True, progress_callback=None, source_video_path=None):
     last_error = None
+    _log_project_font_dir_state()
 
     for attempt in range(1, VIDEO_RETRY_ATTEMPTS + 1):
         if progress_callback:
