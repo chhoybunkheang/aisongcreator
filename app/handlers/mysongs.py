@@ -153,7 +153,7 @@ def _cover_source_keyboard(song_id):
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🖼 Upload Image", callback_data=f"ms_cov_upload_{song_id}")],
         [InlineKeyboardButton("🎞 Upload Video", callback_data=f"ms_cov_upload_video_{song_id}")],
-        [InlineKeyboardButton("🎨 Generate Image", callback_data=f"ms_cov_{song_id}")],
+        [InlineKeyboardButton("🎨 Use Generated Image", callback_data=f"ms_cov_use_{song_id}")],
     ])
 
 
@@ -538,6 +538,78 @@ async def ms_prompt_video_subtitles(update: Update, context: ContextTypes.DEFAUL
         ),
         reply_markup=_video_subtitle_keyboard(song.id)
     )
+
+
+async def _prompt_video_subtitles_for_song(query, context, song):
+    context.user_data["ms_video_animation_style"] = "none"
+    await query.edit_message_text(
+        (
+            "Step 1 of 1: Do you want to add subtitles to the uploaded video?\n\nSubtitles use extra credits."
+            if song.source_video_path and os.path.exists(song.source_video_path)
+            else "Step 1 of 1: Do you want to add subtitles to the video?\n\nSubtitles use extra credits."
+        ),
+        reply_markup=_video_subtitle_keyboard(song.id)
+    )
+
+
+async def ms_use_generated_cover(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await _safe_answer(query)
+
+    song_id = int(query.data.split("_")[3])
+    song = get_song_by_id(song_id)
+
+    if not song:
+        await context.bot.send_message(chat_id=query.message.chat_id, text="Song not found.")
+        return
+
+    if song.cover_path and os.path.exists(song.cover_path):
+        await _prompt_video_subtitles_for_song(query, context, song)
+        return
+
+    await query.edit_message_text("Generating image...\nPreparing request...")
+    progress_task, progress_stop = await start_timed_progress_message(
+        query.message,
+        "Generating image...\nPreparing request...",
+        start_percent=1,
+        max_percent=95,
+        total_seconds=COVER_QUEUE_SECONDS,
+    )
+    progress_callback = make_progress_notifier(asyncio.get_running_loop(), query.message)
+
+    try:
+        cover_image = await asyncio.to_thread(
+            generate_cover_image,
+            topic=song.topic,
+            mood=song.mood,
+            style=song.style,
+            description=song.description,
+            lyrics=song.lyrics,
+            language=song.language,
+            progress_callback=progress_callback,
+        )
+        update_song_cover(song_id, cover_image)
+        update_song_source_video(song_id, None)
+
+        await stop_progress_message(progress_task, progress_stop)
+
+        refreshed_song = get_song_by_id(song_id)
+        if not refreshed_song:
+            await context.bot.send_message(chat_id=query.message.chat_id, text="Song not found.")
+            return
+
+        await _prompt_video_subtitles_for_song(query, context, refreshed_song)
+    except Exception as e:
+        await stop_progress_message(
+            progress_task,
+            progress_stop,
+            query.message,
+            "Image generation failed"
+        )
+        error_msg = f"Error generating image:\n{str(e)}"
+        if len(error_msg) > 4096:
+            error_msg = error_msg[:4090] + "..."
+        await context.bot.send_message(chat_id=query.message.chat_id, text=error_msg)
 
 
 async def ms_gen_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1286,6 +1358,7 @@ song_detail_handler = CallbackQueryHandler(
 
 ms_mp3_handler = CallbackQueryHandler(ms_gen_mp3, pattern=r"^ms_mp3_\d+$")
 ms_cov_handler = CallbackQueryHandler(ms_gen_cover, pattern=r"^ms_cov_\d+$")
+ms_cov_use_handler = CallbackQueryHandler(ms_use_generated_cover, pattern=r"^ms_cov_use_\d+$")
 ms_cov_upload_handler = CallbackQueryHandler(ms_upload_cover, pattern=r"^ms_cov_upload(_video)?_\d+$")
 ms_vid_handler = CallbackQueryHandler(ms_prompt_video_subtitles, pattern=r"^ms_vid_prompt_\d+$")
 ms_vid_choice_handler = CallbackQueryHandler(ms_gen_video, pattern=r"^ms_vid_(yes|no)_\d+$")
