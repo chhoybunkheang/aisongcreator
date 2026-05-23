@@ -446,6 +446,8 @@ def _uses_cjk_subtitle_layout(text):
         _contains_any_range(text, CHINESE_SCRIPT_RANGES)
         or _contains_range(text, "\u3040", "\u30ff")
         or _contains_any_range(text, KOREAN_SCRIPT_RANGES)
+        or _contains_range(text, "\u1780", "\u17ff")   # Khmer
+        or _contains_any_range(text, THAI_SCRIPT_RANGES)  # Thai
     )
 
 
@@ -534,11 +536,25 @@ def _resolve_subtitle_font(text):
     return None
 
 
+def _uses_cjk_char_layout(text):
+    """True for scripts where spaces are not word separators (CJK), so space-stripping is safe."""
+    return (
+        _contains_any_range(text, CHINESE_SCRIPT_RANGES)
+        or _contains_range(text, "\u3040", "\u30ff")
+        or _contains_any_range(text, KOREAN_SCRIPT_RANGES)
+    )
+
+
 def _make_subtitle_text_clip(text, font_size, subtitle_width):
     font_path = _resolve_subtitle_font(text)
 
     if _uses_cjk_subtitle_layout(text):
-        display_text = _wrap_cjk_subtitle_text(text)
+        # Use ImageMagick 'label' method for all complex scripts.
+        # For CJK, strip spaces and chunk; for Khmer/Thai keep the text as-is.
+        if _uses_cjk_char_layout(text):
+            display_text = _wrap_cjk_subtitle_text(text)
+        else:
+            display_text = text
         _log_subtitle_render_choice(text, display_text, font_path, "label")
         return TextClip(
             text=display_text,
