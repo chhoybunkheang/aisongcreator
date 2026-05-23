@@ -159,8 +159,23 @@ def _cover_source_keyboard():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🖼 Upload Image", callback_data="cover_upload")],
         [InlineKeyboardButton("🎞 Upload Video", callback_data="cover_upload_video")],
-        [InlineKeyboardButton("🎨 Generate Image", callback_data="cover_generate")],
+        [InlineKeyboardButton("🎨 Use Generated Image", callback_data="cover_use_generated")],
     ])
+
+
+async def _resolve_generated_cover_image(context):
+    generated_cover_image = context.user_data.get("generated_cover_image")
+    if generated_cover_image and os.path.exists(generated_cover_image):
+        return generated_cover_image
+
+    generated_cover_task = context.user_data.get("generated_cover_task")
+    if not generated_cover_task:
+        return None
+
+    generated_cover_image = await generated_cover_task
+    context.user_data["generated_cover_image"] = generated_cover_image
+    context.user_data.pop("generated_cover_task", None)
+    return generated_cover_image
 
 
 def _singer_keyboard():
@@ -990,6 +1005,20 @@ async def confirm_mp3(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     progress_callback = make_progress_notifier(asyncio.get_running_loop(), query.message)
 
+    generated_cover_task = asyncio.create_task(
+        asyncio.to_thread(
+            generate_cover_image,
+            topic=topic,
+            mood=mood,
+            style=style,
+            description=context.user_data.get("description", ""),
+            lyrics=context.user_data.get("lyrics", ""),
+            language=context.user_data.get("language", ""),
+        )
+    )
+    context.user_data["generated_cover_task"] = generated_cover_task
+    context.user_data.pop("generated_cover_image", None)
+
     try:
         mp3_file = await asyncio.to_thread(
             generate_music,
@@ -1043,13 +1072,15 @@ async def confirm_mp3(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context,
             context.bot.send_message,
             chat_id=query.message.chat_id,
-            text="🎬 Do you want to create a video?",
+            text="🎬 Do you want to create a video?\n\nIf yes, you can upload an image, upload a video, or use the generated image.",
             reply_markup=_yes_no_keyboard(),
             state_key="song_flow_message_id",
         )
         return CONFIRM_VIDEO_START
 
     except Exception as e:
+        context.user_data.pop("generated_cover_task", None)
+        context.user_data.pop("generated_cover_image", None)
         if credit_reserved:
             refund_credit(query.from_user.id)
         await stop_progress_message(
@@ -1074,6 +1105,8 @@ async def confirm_video_start(update: Update, context: ContextTypes.DEFAULT_TYPE
     await _safe_answer(query)
 
     if query.data == "no":
+        context.user_data.pop("generated_cover_task", None)
+        context.user_data.pop("generated_cover_image", None)
         user = get_user(query.from_user.id)
         await query.edit_message_text(
             f"✅ All done!\n\n"
@@ -1110,81 +1143,50 @@ async def choose_cover_source(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         return UPLOAD_COVER
 
-    topic = context.user_data["topic"]
-    mood = context.user_data["mood"]
-    style = context.user_data["style"]
+    if query.data == "cover_use_generated":
+        await query.edit_message_text("🎨 Preparing generated image...\nFinalizing cover...")
 
-    await query.edit_message_text("⏳ Generating cover image...\nPreparing request...")
-    progress_task, progress_stop = await start_timed_progress_message(
-        query.message,
-        "⏳ Generating cover image...\nPreparing request...",
-        start_percent=1,
-        max_percent=95,
-        total_seconds=COVER_QUEUE_SECONDS,
-    )
-    progress_callback = make_progress_notifier(asyncio.get_running_loop(), query.message)
+        try:
+            cover_image = await _resolve_generated_cover_image(context)
+        except Exception:
+            context.user_data.pop("generated_cover_task", None)
+            context.user_data.pop("generated_cover_image", None)
+            await query.edit_message_text(
+                "❌ The generated image is not ready right now. Please upload an image or upload a video instead.",
+                reply_markup=_cover_source_keyboard(),
+            )
+            return CHOOSE_COVER
 
-    try:
-        cover_image = await asyncio.to_thread(
-            generate_cover_image,
-            topic=topic,
-            mood=mood,
-            style=style,
-            description=context.user_data.get("description", ""),
-            lyrics=context.user_data.get("lyrics", ""),
-            language=context.user_data.get("language", ""),
-            progress_callback=progress_callback,
-        )
+        if not cover_image:
+            await query.edit_message_text(
+                "❌ The generated image is not available right now. Please upload an image or upload a video instead.",
+                reply_markup=_cover_source_keyboard(),
+            )
+            return CHOOSE_COVER
+
         context.user_data["cover_image"] = cover_image
         context.user_data.pop("source_video_path", None)
         if context.user_data.get("song_id"):
             update_song_cover(context.user_data["song_id"], cover_image)
             update_song_source_video(context.user_data["song_id"], None)
 
-        with open(cover_image, "rb") as photo:
-            await send_photo_with_status(
-                context.bot,
-                chat_id=query.message.chat_id,
-                photo=photo,
-                caption="🎨 AI Generated Cover",
-                status_message=query.message,
-                upload_text="⏫ Cover ready. Uploading to Telegram...",
-                complete_text="✅ Cover uploaded",
-            )
-
-        await stop_progress_message(
-            progress_task,
-            progress_stop,
-            query.message,
-            "✅ Cover uploaded 100%"
-        )
-
-        await replace_flow_message(
-            context,
-            context.bot.send_message,
-            chat_id=query.message.chat_id,
-            text=(
-                f"Your cover for \"{topic}\" is ready.\n\n"
-                "Next you can choose whether to add subtitles.\n\n"
-                "Create video now?"
-            ),
+        context.user_data["video_animation_style"] = "none"
+        context.user_data["video_subtitle_prompt_pending"] = True
+        await query.edit_message_text(
+            "Step 1 of 1: Do you want to add subtitles to the video?\n\nSubtitles use extra credits.",
             reply_markup=_yes_no_keyboard(),
-            state_key="song_flow_message_id",
         )
         return CONFIRM_VIDEO
 
-    except Exception as e:
-        await stop_progress_message(
-            progress_task,
-            progress_stop,
-            query.message,
-            "❌ Cover generation failed"
-        )
-        error_msg = f"❌ Error generating cover:\n{str(e)}"
-        if len(error_msg) > 4096:
-            error_msg = error_msg[:4090] + "..."
-        await context.bot.send_message(chat_id=query.message.chat_id, text=error_msg)
-        return ConversationHandler.END
+    topic = context.user_data["topic"]
+    mood = context.user_data["mood"]
+    style = context.user_data["style"]
+
+    await query.edit_message_text(
+        "❌ Generated image is not available right now. Please upload an image or upload a video instead.",
+        reply_markup=_cover_source_keyboard(),
+    )
+    return CHOOSE_COVER
 
 
 # -----------------------------
