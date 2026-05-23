@@ -1014,7 +1014,27 @@ def create_music_video(audio_path, image_path=None, output_path=None, animation_
                 preset=VIDEO_PRESET,
             )
             if use_ass_renderer:
-                _burn_subtitles_with_ass(render_output_path, output_path, subtitle_segments, frame_size)
+                try:
+                    _burn_subtitles_with_ass(render_output_path, output_path, subtitle_segments, frame_size)
+                except Exception as ass_error:  # noqa: BLE001
+                    logger.warning(
+                        "ASS subtitle burn failed; falling back to MoviePy subtitle renderer: %s",
+                        ass_error,
+                    )
+                    subtitle_clips = _build_timed_subtitle_clips(subtitle_segments, audio.duration, frame_size)
+                    if subtitle_clips:
+                        video = CompositeVideoClip([cover_video.with_audio(audio), *subtitle_clips]).with_audio(audio)
+                        video.write_videofile(
+                            output_path,
+                            fps=VIDEO_FPS,
+                            codec="libx264",
+                            audio_codec="aac",
+                            bitrate=VIDEO_BITRATE,
+                            audio_bitrate=AUDIO_BITRATE,
+                            preset=VIDEO_PRESET,
+                        )
+                    elif render_output_path != output_path:
+                        os.replace(render_output_path, output_path)
             elif render_output_path != output_path:
                 os.replace(render_output_path, output_path)
             _validate_rendered_video(output_path)
