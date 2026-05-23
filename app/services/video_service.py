@@ -216,7 +216,7 @@ def _build_animated_cover_clip(image_path, duration, animation_style="pan_pulse"
 
 
 def _build_source_video_clip(source_video_path, duration):
-    base_video = VideoFileClip(source_video_path).without_audio().resized(height=VIDEO_HEIGHT)
+    base_video = VideoFileClip(source_video_path).without_audio()
     if base_video.duration <= 0:
         base_video.close()
         raise ValueError("Uploaded source video has no duration")

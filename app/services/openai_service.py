@@ -4,6 +4,7 @@ import re
 import time
 from difflib import SequenceMatcher
 
+from moviepy import AudioFileClip
 from openai import OpenAI
 
 from app.config.settings import OPENAI_API_KEY
@@ -14,6 +15,7 @@ from app.config.settings import OPENAI_API_KEY
 client = OpenAI(api_key=OPENAI_API_KEY)
 LYRICS_RETRY_ATTEMPTS = 2
 LYRICS_RETRY_DELAY_SECONDS = 2
+MAX_FINAL_SUBTITLE_EXTENSION_SECONDS = 12.0
 
 
 def _is_retryable_openai_error(error):
@@ -438,10 +440,46 @@ def _find_best_line_window(line_tokens, words, start_index):
     return None
 
 
+def _get_audio_duration_seconds(mp3_path):
+    if not mp3_path:
+        return None
+
+    audio = None
+    try:
+        audio = AudioFileClip(mp3_path)
+        return float(audio.duration or 0.0) or None
+    except Exception:
+        return None
+    finally:
+        if audio is not None:
+            audio.close()
+
+
+def _extend_final_subtitle_coverage(aligned_lines, audio_duration):
+    if not aligned_lines or not audio_duration:
+        return aligned_lines
+
+    final_line = aligned_lines[-1]
+    final_end = float(final_line.get("end", 0.0) or 0.0)
+    final_start = float(final_line.get("start", 0.0) or 0.0)
+    trailing_gap = max(float(audio_duration) - final_end, 0.0)
+
+    if trailing_gap <= 0:
+        return aligned_lines
+
+    if trailing_gap > MAX_FINAL_SUBTITLE_EXTENSION_SECONDS:
+        return aligned_lines
+
+    final_line["end"] = round(max(final_end, final_start + 0.2, float(audio_duration)), 3)
+    return aligned_lines
+
+
 def generate_subtitle_timing(mp3_path, lyrics, language="", progress_callback=None):
     lyric_lines = _clean_lyric_lines(lyrics)
     if not lyric_lines:
         return []
+
+    audio_duration = _get_audio_duration_seconds(mp3_path)
 
     if progress_callback:
         progress_callback("⏳ Generating subtitles...\nPreparing lyric lines...")
@@ -480,12 +518,14 @@ def generate_subtitle_timing(mp3_path, lyrics, language="", progress_callback=No
     words = _extract_transcription_words(response_data)
     aligned_lines = _align_lyric_lines_to_words(lyric_lines, words)
     if aligned_lines:
+        aligned_lines = _extend_final_subtitle_coverage(aligned_lines, audio_duration)
         if progress_callback:
             progress_callback("✅ Subtitles generated 100%")
         return aligned_lines
 
     segments = response_data.get("segments") or []
     aligned_segments = _align_lyric_lines_to_segments(lyric_lines, segments)
+    aligned_segments = _extend_final_subtitle_coverage(aligned_segments, audio_duration)
     if progress_callback:
         progress_callback("✅ Subtitles generated 100%")
     return aligned_segments

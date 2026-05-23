@@ -56,9 +56,9 @@ from app.states.song_states import (
     BUY_CREDITS,
     CHOOSE_COVER,
     CHOOSE_TYPE,
-    CONFIRM_COVER,
     CONFIRM_MP3,
     CONFIRM_VIDEO,
+    CONFIRM_VIDEO_START,
     DESCRIPTION,
     EDIT_LYRICS,
     LANGUAGE,
@@ -170,6 +170,29 @@ def _singer_keyboard():
             InlineKeyboardButton("🎙 Female", callback_data="singer_female"),
         ]
     ])
+
+
+def _detect_language_from_lyrics(lyrics):
+    text = (lyrics or "").strip()
+    enabled_languages = set(get_enabled_song_languages())
+
+    if any("\u1780" <= char <= "\u17ff" for char in text) and "Khmer" in enabled_languages:
+        return "Khmer"
+
+    if any("\u3040" <= char <= "\u30ff" for char in text) and "Japanese" in enabled_languages:
+        return "Japanese"
+
+    if any("\u4e00" <= char <= "\u9fff" for char in text) and "Chinese" in enabled_languages:
+        return "Chinese"
+
+    vietnamese_markers = set("ăâđêôơưáàảãạấầẩẫậắằẳẵặéèẻẽẹếềểễệíìỉĩịóòỏõọốồổỗộớờởỡợúùủũụứừửữựýỳỷỹỵ")
+    if any(char.lower() in vietnamese_markers for char in text) and "Vietnamese" in enabled_languages:
+        return "Vietnamese"
+
+    if "English" in enabled_languages:
+        return "English"
+
+    return next(iter(enabled_languages), "English")
 
 
 def _description_keyboard():
@@ -544,6 +567,7 @@ async def choose_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if query.data == "type_paste":
         user_data.clear()
+        user_data["pasted_lyrics_mode"] = True
         user_data["description"] = ""
         chat_data["song_flow_message_id"] = query.message.message_id
         await query.edit_message_text("📋 Please paste your lyrics:")
@@ -629,7 +653,9 @@ async def get_pasted_lyrics(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return PASTE_LYRICS
 
     context.user_data["lyrics"] = lyrics
+    context.user_data["pasted_lyrics_mode"] = True
     context.user_data["description"] = ""
+    context.user_data["language"] = _detect_language_from_lyrics(lyrics)
     await replace_flow_message(
         context,
         update.message.reply_text,
@@ -650,6 +676,18 @@ async def get_music_style(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return MUSIC_STYLE
 
     context.user_data["style"] = style
+
+    if context.user_data.get("pasted_lyrics_mode"):
+        context.user_data["mood"] = ""
+        await replace_flow_message(
+            context,
+            update.message.reply_text,
+            f"🌍 Language detected: {context.user_data['language']}\n\nChoose a singer voice:",
+            reply_markup=_singer_keyboard(),
+            state_key="song_flow_message_id",
+        )
+        return SINGER
+
     await replace_flow_message(
         context,
         update.message.reply_text,
@@ -675,6 +713,15 @@ async def choose_music_style(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return MUSIC_STYLE
 
     context.user_data["style"] = callback_value
+
+    if context.user_data.get("pasted_lyrics_mode"):
+        context.user_data["mood"] = ""
+        await query.edit_message_text(
+            f"🌍 Language detected: {context.user_data['language']}\n\nChoose a singer voice:",
+            reply_markup=_singer_keyboard(),
+        )
+        return SINGER
+
     await query.edit_message_text(
         "😊 Choose a mood or type your own.\n\n"
         f"Examples:\n{_mood_examples_text('custom')}",
@@ -694,6 +741,19 @@ async def get_topic(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return TOPIC
 
     context.user_data["topic"] = topic
+
+    if context.user_data.get("pasted_lyrics_mode"):
+        context.user_data["description"] = ""
+        await replace_flow_message(
+            context,
+            update.message.reply_text,
+            "🎼 Choose a music style or type your own.\n\n"
+            "Examples:\n- Remix\n- Rap\n- Romantic\n- Sad Song",
+            reply_markup=_music_style_keyboard(),
+            state_key="song_flow_message_id",
+        )
+        return MUSIC_STYLE
+
     await replace_flow_message(
         context,
         update.message.reply_text,
@@ -874,6 +934,8 @@ async def edit_lyrics(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return EDIT_LYRICS
 
     context.user_data["lyrics"] = lyrics
+    if context.user_data.get("pasted_lyrics_mode"):
+        context.user_data["language"] = _detect_language_from_lyrics(lyrics)
 
     return await _send_lyrics_preview_and_actions(
         context,
@@ -980,11 +1042,11 @@ async def confirm_mp3(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context,
             context.bot.send_message,
             chat_id=query.message.chat_id,
-            text="🎨 Do you want to generate a cover image?",
+            text="🎬 Do you want to create a video?",
             reply_markup=_yes_no_keyboard(),
             state_key="song_flow_message_id",
         )
-        return CONFIRM_COVER
+        return CONFIRM_VIDEO_START
 
     except Exception as e:
         if credit_reserved:
@@ -1003,9 +1065,9 @@ async def confirm_mp3(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # -----------------------------
-# CONFIRM COVER
+# CONFIRM VIDEO START
 # -----------------------------
-async def confirm_cover(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def confirm_video_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     query = update.callback_query
     await _safe_answer(query)
@@ -1019,7 +1081,7 @@ async def confirm_cover(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
 
     await query.edit_message_text(
-        "🎨 Choose cover image type:",
+        "🎬 Choose visual source type for your video:",
         reply_markup=_cover_source_keyboard()
     )
     return CHOOSE_COVER
@@ -1431,8 +1493,8 @@ song_handler = ConversationHandler(
             CallbackQueryHandler(confirm_mp3),
             CallbackQueryHandler(cancel_flow_handler, pattern=r"^cancel_flow$")
         ],
-        CONFIRM_COVER: [
-            CallbackQueryHandler(confirm_cover),
+        CONFIRM_VIDEO_START: [
+            CallbackQueryHandler(confirm_video_start),
             CallbackQueryHandler(cancel_flow_handler, pattern=r"^cancel_flow$")
         ],
         CHOOSE_COVER: [
