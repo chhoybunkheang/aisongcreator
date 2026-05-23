@@ -40,6 +40,9 @@ FONT_SEARCH_DIRS = [
     WINDOWS_FONTS_DIR,
     "/usr/share/fonts",
     "/usr/local/share/fonts",
+    "/nix/var/nix/profiles/default/share/fonts",
+    "/root/.nix-profile/share/fonts",
+    "/etc/profiles/per-user/root/share/fonts",
     os.path.expanduser("~/.fonts"),
     os.path.expanduser("~/.local/share/fonts"),
     "/Library/Fonts",
@@ -192,6 +195,43 @@ DEVANAGARI_SCRIPT_RANGES = (
     ("\u0900", "\u097f"),
 )
 
+DEFAULT_FONTCONFIG_PATTERNS = (
+    "sans-serif",
+)
+KHMER_FONTCONFIG_PATTERNS = (
+    "sans-serif:lang=km",
+    *DEFAULT_FONTCONFIG_PATTERNS,
+)
+THAI_FONTCONFIG_PATTERNS = (
+    "sans-serif:lang=th",
+    *DEFAULT_FONTCONFIG_PATTERNS,
+)
+JAPANESE_FONTCONFIG_PATTERNS = (
+    "sans-serif:lang=ja",
+    *DEFAULT_FONTCONFIG_PATTERNS,
+)
+CHINESE_FONTCONFIG_PATTERNS = (
+    "sans-serif:lang=zh-cn",
+    "sans-serif:lang=zh",
+    *DEFAULT_FONTCONFIG_PATTERNS,
+)
+KOREAN_FONTCONFIG_PATTERNS = (
+    "sans-serif:lang=ko",
+    *DEFAULT_FONTCONFIG_PATTERNS,
+)
+ARABIC_FONTCONFIG_PATTERNS = (
+    "sans-serif:lang=ar",
+    *DEFAULT_FONTCONFIG_PATTERNS,
+)
+HEBREW_FONTCONFIG_PATTERNS = (
+    "sans-serif:lang=he",
+    *DEFAULT_FONTCONFIG_PATTERNS,
+)
+DEVANAGARI_FONTCONFIG_PATTERNS = (
+    "sans-serif:lang=hi",
+    *DEFAULT_FONTCONFIG_PATTERNS,
+)
+
 
 def _validate_rendered_video(output_path):
     if not os.path.exists(output_path):
@@ -316,26 +356,40 @@ def _log_subtitle_render_choice(source_text, display_text, font_path, method):
 
 def _resolve_subtitle_font(text):
     candidates = DEFAULT_SUBTITLE_FONT_CANDIDATES
+    fontconfig_patterns = DEFAULT_FONTCONFIG_PATTERNS
 
     if _contains_range(text, "\u1780", "\u17ff"):
         candidates = KHMER_SUBTITLE_FONT_CANDIDATES
+        fontconfig_patterns = KHMER_FONTCONFIG_PATTERNS
     elif _contains_any_range(text, THAI_SCRIPT_RANGES):
         candidates = THAI_SUBTITLE_FONT_CANDIDATES
+        fontconfig_patterns = THAI_FONTCONFIG_PATTERNS
     elif _contains_range(text, "\u3040", "\u30ff"):
         candidates = JAPANESE_SUBTITLE_FONT_CANDIDATES
+        fontconfig_patterns = JAPANESE_FONTCONFIG_PATTERNS
     elif _contains_any_range(text, KOREAN_SCRIPT_RANGES):
         candidates = KOREAN_SUBTITLE_FONT_CANDIDATES
+        fontconfig_patterns = KOREAN_FONTCONFIG_PATTERNS
     elif _contains_any_range(text, CHINESE_SCRIPT_RANGES):
         candidates = CHINESE_SUBTITLE_FONT_CANDIDATES
+        fontconfig_patterns = CHINESE_FONTCONFIG_PATTERNS
     elif _contains_any_range(text, ARABIC_SCRIPT_RANGES):
         candidates = ARABIC_SUBTITLE_FONT_CANDIDATES
+        fontconfig_patterns = ARABIC_FONTCONFIG_PATTERNS
     elif _contains_any_range(text, HEBREW_SCRIPT_RANGES):
         candidates = HEBREW_SUBTITLE_FONT_CANDIDATES
+        fontconfig_patterns = HEBREW_FONTCONFIG_PATTERNS
     elif _contains_any_range(text, DEVANAGARI_SCRIPT_RANGES):
         candidates = DEVANAGARI_SUBTITLE_FONT_CANDIDATES
+        fontconfig_patterns = DEVANAGARI_FONTCONFIG_PATTERNS
 
     for candidate in candidates:
         font_path = _font_path(candidate)
+        if font_path:
+            return font_path
+
+    for pattern in fontconfig_patterns:
+        font_path = _fontconfig_match(pattern)
         if font_path:
             return font_path
 
