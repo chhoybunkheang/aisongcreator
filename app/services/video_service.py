@@ -57,14 +57,14 @@ JAPANESE_SUBTITLE_FONT_CANDIDATES = [
     *UNICODE_SUBTITLE_FONT_CANDIDATES,
 ]
 CHINESE_SUBTITLE_FONT_CANDIDATES = [
+    "msyh.ttc",
+    "msyhl.ttc",
+    "msyhbd.ttc",
     "msjh.ttc",
     "msjhbd.ttc",
-    "mingliub.ttc",
     "SimsunExtG.ttf",
-    "msyhl.ttc",
-    "msyh.ttc",
-    "msyhbd.ttc",
     "simsun.ttc",
+    "mingliub.ttc",
     "simhei.ttf",
     *UNICODE_SUBTITLE_FONT_CANDIDATES,
 ]
