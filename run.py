@@ -100,6 +100,7 @@ def main():
         mp3_to_lyrics_handler,
         mp3_video_prompt_handler,
         ms_cov_handler,
+        ms_cov_use_handler,
         ms_cov_upload_handler,
         ms_mp3_handler,
         ms_receive_uploaded_cover,
@@ -176,6 +177,7 @@ def main():
     app.add_handler(lyrics_detail_handler)
     app.add_handler(ms_mp3_handler)
     app.add_handler(ms_cov_handler)
+    app.add_handler(ms_cov_use_handler)
     app.add_handler(ms_cov_upload_handler)
     app.add_handler(ms_vid_handler)
     app.add_handler(ms_vid_choice_handler)
