@@ -542,13 +542,17 @@ async def ms_prompt_video_subtitles(update: Update, context: ContextTypes.DEFAUL
 
 async def _prompt_video_subtitles_for_song(query, context, song):
     context.user_data["ms_video_animation_style"] = "none"
-    await query.edit_message_text(
-        (
+    await replace_flow_message(
+        context,
+        context.bot.send_message,
+        chat_id=query.message.chat_id,
+        text=(
             "Step 1 of 1: Do you want to add subtitles to the uploaded video?\n\nSubtitles use extra credits."
             if song.source_video_path and os.path.exists(song.source_video_path)
             else "Step 1 of 1: Do you want to add subtitles to the video?\n\nSubtitles use extra credits."
         ),
-        reply_markup=_video_subtitle_keyboard(song.id)
+        reply_markup=_video_subtitle_keyboard(song.id),
+        state_key="mysongs_flow_message_id",
     )
 
 
