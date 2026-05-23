@@ -1176,10 +1176,15 @@ async def add_subtitle_to_video(update: Update, context: ContextTypes.DEFAULT_TY
             if song.subtitle_timing else "Adding subtitles...\nPreparing request..."
         )
     )
-    progress_task, progress_stop = await start_progress_message(
+    progress_task, progress_stop = await start_timed_progress_message(
         progress_message,
-        "Updating subtitles..." if song.subtitle_timing else "Adding subtitles...",
-        auto_increment=False,
+        (
+            "Updating subtitles...\nPreparing request..."
+            if song.subtitle_timing else "Adding subtitles...\nPreparing request..."
+        ),
+        start_percent=1,
+        max_percent=95,
+        total_seconds=VIDEO_WITH_SUBTITLES_QUEUE_SECONDS,
     )
     progress_callback = make_progress_notifier(asyncio.get_running_loop(), progress_message)
     subtitle_credit_reserved = deduct_credit(query.from_user.id, minimum_credits=11)
@@ -1225,13 +1230,20 @@ async def add_subtitle_to_video(update: Update, context: ContextTypes.DEFAULT_TY
             audio_path=song.mp3_path,
             image_path=song.cover_path,
             output_path=video_path,
+            animation_style="none",
             lyrics=song.lyrics,
             subtitle_timing=subtitle_timing,
+            subtitles_enabled=True,
             progress_callback=progress_callback,
             source_video_path=song.source_video_path,
         )
         update_song_video(song_id, video_path)
-        await stop_progress_message(progress_task, progress_stop)
+        await stop_progress_message(
+            progress_task,
+            progress_stop,
+            progress_message,
+            "Subtitled video uploaded 100%"
+        )
 
         with open(video_path, "rb") as video:
             await send_video_with_status(

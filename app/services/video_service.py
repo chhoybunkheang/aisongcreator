@@ -28,6 +28,32 @@ ANIMATED_COVER_SCALE = 1.08
 PULSE_BEATS_PER_SECOND = 1.9
 PULSE_SCALE_AMOUNT = 0.035
 
+WINDOWS_FONTS_DIR = os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts")
+DEFAULT_SUBTITLE_FONT_CANDIDATES = [
+    "segoeui.ttf",
+    "arial.ttf",
+]
+KHMER_SUBTITLE_FONT_CANDIDATES = [
+    "KhmerUI.ttf",
+    "DaunPenh.ttf",
+    "MoolBoran.ttf",
+    *DEFAULT_SUBTITLE_FONT_CANDIDATES,
+]
+JAPANESE_SUBTITLE_FONT_CANDIDATES = [
+    "YuGothR.ttc",
+    "YuGothM.ttc",
+    "msgothic.ttc",
+    "meiryo.ttc",
+    *DEFAULT_SUBTITLE_FONT_CANDIDATES,
+]
+CHINESE_SUBTITLE_FONT_CANDIDATES = [
+    "msyh.ttc",
+    "msyhbd.ttc",
+    "simhei.ttf",
+    "simsun.ttc",
+    *DEFAULT_SUBTITLE_FONT_CANDIDATES,
+]
+
 
 def _validate_rendered_video(output_path):
     if not os.path.exists(output_path):
@@ -49,6 +75,50 @@ def _is_retryable_video_error(error):
         "i/o error",
     )
     return any(marker in error_text for marker in retry_markers)
+
+
+def _font_path(font_name):
+    font_path = os.path.join(WINDOWS_FONTS_DIR, font_name)
+    return font_path if os.path.exists(font_path) else None
+
+
+def _contains_range(text, start, end):
+    return any(start <= char <= end for char in str(text or ""))
+
+
+def _resolve_subtitle_font(text):
+    candidates = DEFAULT_SUBTITLE_FONT_CANDIDATES
+
+    if _contains_range(text, "\u1780", "\u17ff"):
+        candidates = KHMER_SUBTITLE_FONT_CANDIDATES
+    elif _contains_range(text, "\u3040", "\u30ff"):
+        candidates = JAPANESE_SUBTITLE_FONT_CANDIDATES
+    elif _contains_range(text, "\u4e00", "\u9fff"):
+        candidates = CHINESE_SUBTITLE_FONT_CANDIDATES
+
+    for candidate in candidates:
+        font_path = _font_path(candidate)
+        if font_path:
+            return font_path
+
+    return None
+
+
+def _make_subtitle_text_clip(text, font_size, subtitle_width):
+    font_path = _resolve_subtitle_font(text)
+
+    return TextClip(
+        text=text,
+        font=font_path,
+        font_size=font_size,
+        color=SUBTITLE_TEXT_COLOR,
+        stroke_color="black",
+        stroke_width=1,
+        method="caption",
+        size=(subtitle_width, None),
+        margin=(28, 18),
+        text_align="center",
+    )
 
 
 def _build_subtitle_lines(lyrics):
@@ -106,17 +176,7 @@ def _build_subtitle_clips(subtitle_lines, duration, frame_size):
         start_time = index * segment_duration
         remaining = max(duration - start_time, 0.1)
 
-        subtitle_clip = TextClip(
-            text=subtitle_line,
-            font_size=font_size,
-            color=SUBTITLE_TEXT_COLOR,
-            stroke_color="black",
-            stroke_width=1,
-            method="caption",
-            size=(subtitle_width, None),
-            margin=(28, 18),
-            text_align="center",
-        )
+        subtitle_clip = _make_subtitle_text_clip(subtitle_line, font_size, subtitle_width)
         subtitle_y = max(frame_height - SUBTITLE_BOTTOM_MARGIN - subtitle_clip.h, 0)
         subtitle_clips.append(
             subtitle_clip
@@ -144,17 +204,7 @@ def _build_timed_subtitle_clips(subtitle_segments, duration, frame_size):
         if not subtitle_text or end_time <= start_time:
             continue
 
-        subtitle_clip = TextClip(
-            text=subtitle_text,
-            font_size=font_size,
-            color=SUBTITLE_TEXT_COLOR,
-            stroke_color="black",
-            stroke_width=1,
-            method="caption",
-            size=(subtitle_width, None),
-            margin=(28, 18),
-            text_align="center",
-        )
+        subtitle_clip = _make_subtitle_text_clip(subtitle_text, font_size, subtitle_width)
         subtitle_y = max(frame_height - SUBTITLE_BOTTOM_MARGIN - subtitle_clip.h, 0)
         subtitle_clips.append(
             subtitle_clip
