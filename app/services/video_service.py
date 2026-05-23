@@ -922,6 +922,7 @@ def _build_source_video_clip(source_video_path, duration):
 
 def create_music_video(audio_path, image_path=None, output_path=None, animation_style="pan_pulse", lyrics=None, subtitle_timing=None, subtitles_enabled=True, progress_callback=None, source_video_path=None):
     last_error = None
+    output_path = output_path or os.path.join(PROJECT_ROOT_DIR, "media", "generated", "videos", f"music_{int(time.time())}.mp4")
     _log_project_font_dir_state()
 
     for attempt in range(1, VIDEO_RETRY_ATTEMPTS + 1):
