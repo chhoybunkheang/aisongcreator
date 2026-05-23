@@ -16,6 +16,8 @@ client = OpenAI(api_key=OPENAI_API_KEY)
 LYRICS_RETRY_ATTEMPTS = 2
 LYRICS_RETRY_DELAY_SECONDS = 2
 MAX_FINAL_SUBTITLE_EXTENSION_SECONDS = 12.0
+MIN_SUBTITLE_LINE_DURATION_SECONDS = 0.15
+MIN_SUBTITLE_LINE_GAP_SECONDS = 0.02
 
 
 def _is_retryable_openai_error(error):
@@ -298,10 +300,9 @@ def _align_lyric_lines_to_segments(lyric_lines, segments):
             "end": round(line_end, 3),
         })
 
+    aligned_lines = _normalize_aligned_line_boundaries(aligned_lines, min_duration=0.2)
+
     final_end = usable_segments[-1]["end"]
-    for index, item in enumerate(aligned_lines[:-1]):
-        next_start = aligned_lines[index + 1]["start"]
-        item["end"] = round(max(min(item["end"], next_start), item["start"] + 0.2), 3)
 
     aligned_lines[-1]["end"] = round(max(aligned_lines[-1]["end"], final_end), 3)
     return aligned_lines
@@ -382,10 +383,9 @@ def _align_lyric_lines_to_words(lyric_lines, words):
             "end": round(line_end, 3),
         })
 
+    aligned_lines = _normalize_aligned_line_boundaries(aligned_lines, min_duration=0.15)
+
     final_end = words[-1]["end"]
-    for index, item in enumerate(aligned_lines[:-1]):
-        next_start = aligned_lines[index + 1]["start"]
-        item["end"] = round(max(min(item["end"], next_start), item["start"] + 0.15), 3)
 
     aligned_lines[-1]["end"] = round(max(aligned_lines[-1]["end"], final_end), 3)
     return aligned_lines
@@ -453,6 +453,33 @@ def _get_audio_duration_seconds(mp3_path):
     finally:
         if audio is not None:
             audio.close()
+
+
+def _normalize_aligned_line_boundaries(aligned_lines, min_duration=MIN_SUBTITLE_LINE_DURATION_SECONDS):
+    if not aligned_lines:
+        return aligned_lines
+
+    minimum_duration = max(float(min_duration or 0.0), 0.05)
+    gap_seconds = max(float(MIN_SUBTITLE_LINE_GAP_SECONDS), 0.0)
+
+    for item in aligned_lines:
+        start_time = float(item.get("start", 0.0) or 0.0)
+        end_time = float(item.get("end", start_time) or start_time)
+        item["start"] = round(start_time, 3)
+        item["end"] = round(max(end_time, start_time + 0.05), 3)
+
+    for index, item in enumerate(aligned_lines[:-1]):
+        next_start = float(aligned_lines[index + 1].get("start", item["end"]) or item["end"])
+        start_time = float(item.get("start", 0.0) or 0.0)
+        current_end = float(item.get("end", start_time) or start_time)
+
+        available_duration = max(next_start - start_time - gap_seconds, 0.05)
+        minimum_end = start_time + min(minimum_duration, available_duration)
+        latest_end = max(start_time + 0.05, next_start - gap_seconds)
+        clamped_end = min(current_end, latest_end)
+        item["end"] = round(max(clamped_end, minimum_end), 3)
+
+    return aligned_lines
 
 
 def _extend_final_subtitle_coverage(aligned_lines, audio_duration):
