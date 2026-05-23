@@ -547,6 +547,8 @@ def _uses_cjk_char_layout(text):
 
 def _make_subtitle_text_clip(text, font_size, subtitle_width):
     font_path = _resolve_subtitle_font(text)
+    uses_khmer_or_thai = _contains_range(text, "\u1780", "\u17ff") or _contains_any_range(text, THAI_SCRIPT_RANGES)
+    stroke_width = 0 if uses_khmer_or_thai else 1
 
     if _uses_cjk_subtitle_layout(text):
         # Use ImageMagick 'label' method for all complex scripts.
@@ -562,7 +564,7 @@ def _make_subtitle_text_clip(text, font_size, subtitle_width):
             font_size=font_size,
             color=SUBTITLE_TEXT_COLOR,
             stroke_color="black",
-            stroke_width=1,
+            stroke_width=stroke_width,
             method="label",
             margin=(28, 18),
             text_align="center",
@@ -575,7 +577,7 @@ def _make_subtitle_text_clip(text, font_size, subtitle_width):
         font_size=font_size,
         color=SUBTITLE_TEXT_COLOR,
         stroke_color="black",
-        stroke_width=1,
+        stroke_width=stroke_width,
         method="caption",
         size=(subtitle_width, None),
         margin=(28, 18),

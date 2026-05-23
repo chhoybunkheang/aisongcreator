@@ -170,6 +170,16 @@ def _word_weight(text):
     if not normalized:
         return 1
 
+    if (
+        _contains_khmer_script(normalized)
+        or _contains_thai_script(normalized)
+        or any("\u3040" <= char <= "\u30ff" for char in normalized)
+        or any("\u4e00" <= char <= "\u9fff" for char in normalized)
+        or any("\uac00" <= char <= "\ud7af" for char in normalized)
+    ):
+        # Character-count weighting is more stable for scripts where word boundaries are unreliable.
+        return max(len(normalized.replace(" ", "")), 1)
+
     words = [part for part in normalized.split(" ") if part]
     return len(words) or max(len(normalized), 1)
 
@@ -542,6 +552,21 @@ def generate_subtitle_timing(mp3_path, lyrics, language="", progress_callback=No
     if progress_callback:
         progress_callback("⏳ Generating subtitles...\nAligning lyrics to transcription...")
 
+    segments = response_data.get("segments") or []
+    has_khmer_or_thai = (
+        _is_khmer_language(language)
+        or _contains_khmer_script("\n".join(lyric_lines))
+        or _contains_thai_script("\n".join(lyric_lines))
+    )
+
+    if has_khmer_or_thai:
+        # Segment alignment is more reliable for Khmer/Thai than word windows.
+        aligned_segments = _align_lyric_lines_to_segments(lyric_lines, segments)
+        aligned_segments = _extend_final_subtitle_coverage(aligned_segments, audio_duration)
+        if progress_callback:
+            progress_callback("✅ Subtitles generated 100%")
+        return aligned_segments
+
     words = _extract_transcription_words(response_data)
     aligned_lines = _align_lyric_lines_to_words(lyric_lines, words)
     if aligned_lines:
@@ -550,7 +575,6 @@ def generate_subtitle_timing(mp3_path, lyrics, language="", progress_callback=No
             progress_callback("✅ Subtitles generated 100%")
         return aligned_lines
 
-    segments = response_data.get("segments") or []
     aligned_segments = _align_lyric_lines_to_segments(lyric_lines, segments)
     aligned_segments = _extend_final_subtitle_coverage(aligned_segments, audio_duration)
     if progress_callback:
@@ -582,9 +606,11 @@ def _normalize_transcription_language(language):
     language_map = {
         "english": "en",
         "en": "en",
-        "khmer": None,
-        "cambodian": None,
-        "km": None,
+        "khmer": "km",
+        "cambodian": "km",
+        "km": "km",
+        "thai": "th",
+        "th": "th",
     }
 
     if normalized in language_map:
