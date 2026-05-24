@@ -710,11 +710,14 @@ async def choose_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
         markup = InlineKeyboardMarkup([
             [
                 InlineKeyboardButton("📚 From My Library", callback_data="type_remixlib"),
-                InlineKeyboardButton("📤 Upload MP3", callback_data="type_remixup"),
-            ]
+            ],
+            [
+                InlineKeyboardButton("📤 Upload MP3/Video", callback_data="type_remixup"),
+                InlineKeyboardButton("🔗 YouTube Link", callback_data="type_remixyt"),
+            ],
         ])
         await query.edit_message_text(
-            "🔄 *Remix Language*\n\nChoose the style reference MP3:",
+            "🔄 *Remix Language*\n\nChoose the style reference source:",
             parse_mode="Markdown",
             reply_markup=markup,
         )
@@ -742,8 +745,17 @@ async def choose_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if query.data == "type_remixup":
         context.user_data["awaiting_remix_upload"] = "new"
         await query.edit_message_text(
-            "📤 Please send your MP3 file now.\n\n"
-            "_Send it as a file (Document) or audio message._",
+            "📤 Please send your MP3 file or video now.\n\n"
+            "_Send it as a file (Document), audio message, or video._",
+            parse_mode="Markdown",
+        )
+        return ConversationHandler.END
+
+    if query.data == "type_remixyt":
+        context.user_data["awaiting_remix_upload"] = "new"
+        await query.edit_message_text(
+            "🔗 Please paste a YouTube link:\n\n"
+            "_e.g. https://youtu.be/abc123_",
             parse_mode="Markdown",
         )
         return ConversationHandler.END
