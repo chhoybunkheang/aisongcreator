@@ -13,7 +13,7 @@ from app.config.settings import OPENAI_API_KEY
 # OPENAI CLIENT
 # -----------------------------------
 client = OpenAI(api_key=OPENAI_API_KEY)
-LYRICS_RETRY_ATTEMPTS = 2
+LYRICS_RETRY_ATTEMPTS = 4
 LYRICS_RETRY_DELAY_SECONDS = 2
 MAX_FINAL_SUBTITLE_EXTENSION_SECONDS = 12.0
 MIN_SUBTITLE_LINE_DURATION_SECONDS = 0.15
@@ -889,6 +889,6 @@ def generate_lyrics(style, topic, mood, language, description="", progress_callb
             if attempt == LYRICS_RETRY_ATTEMPTS or not _is_retryable_openai_error(exc):
                 raise
 
-            time.sleep(LYRICS_RETRY_DELAY_SECONDS)
+            time.sleep(LYRICS_RETRY_DELAY_SECONDS * attempt)
 
     raise last_error or Exception("Lyrics generation failed")

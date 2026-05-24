@@ -8,8 +8,9 @@ import uuid
 import requests
 from dotenv import load_dotenv
 from moviepy import AudioFileClip, CompositeAudioClip
+from openai import OpenAI
 
-from app.config.settings import GENERATED_SONGS_DIR
+from app.config.settings import GENERATED_SONGS_DIR, OPENAI_API_KEY
 
 load_dotenv()
 
@@ -21,10 +22,86 @@ TARGET_MP3_BITRATE = "128k"
 PIAPI_CREATE_RETRIES = 3
 PIAPI_POLL_RETRIES = 3
 PIAPI_RETRY_DELAY_SECONDS = 3
+KHMER_MAX_LANGUAGE_RETRIES = 3
+KHMER_MIN_SCRIPT_RATIO = 0.4
+DEFAULT_MUSIC_MODEL = os.getenv("MUSIC_MODEL", "Qubico/ace-step").strip() or "Qubico/ace-step"
+KHMER_MODEL_CANDIDATES = [
+    item.strip()
+    for item in os.getenv("KHMER_MODEL_CANDIDATES", DEFAULT_MUSIC_MODEL).split(",")
+    if item.strip()
+]
+if not KHMER_MODEL_CANDIDATES:
+    KHMER_MODEL_CANDIDATES = [DEFAULT_MUSIC_MODEL]
+
+_whisper_client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 
 
 def _contains_khmer(text):
     return any("\u1780" <= char <= "\u17ff" for char in text)
+
+
+def _khmer_script_ratio(text):
+    source = str(text or "")
+    if not source:
+        return 0.0
+
+    letters = [char for char in source if char.isalpha() or ("\u1780" <= char <= "\u17ff")]
+    if not letters:
+        return 0.0
+
+    khmer_count = sum(1 for char in letters if "\u1780" <= char <= "\u17ff")
+    return khmer_count / len(letters)
+
+
+def _transcribe_generated_vocals(mp3_path, language_hint="km"):
+    if not _whisper_client or not mp3_path or not os.path.exists(mp3_path):
+        return ""
+
+    prompt_text = (
+        "Transcribe sung lyrics only. Preserve original language words. "
+        "Do not translate."
+    )
+
+    try:
+        with open(mp3_path, "rb") as audio_file:
+            response = _whisper_client.audio.transcriptions.create(
+                model="whisper-1",
+                file=audio_file,
+                language=language_hint,
+                prompt=prompt_text,
+            )
+    except Exception as exc:
+        error_text = str(exc or "").lower()
+        if "language" in error_text and "not supported" in error_text:
+            try:
+                with open(mp3_path, "rb") as audio_file:
+                    response = _whisper_client.audio.transcriptions.create(
+                        model="whisper-1",
+                        file=audio_file,
+                        prompt=prompt_text,
+                    )
+            except Exception as fallback_exc:
+                print(f"[WARNING] Whisper verification failed after fallback: {fallback_exc}")
+                return ""
+        else:
+            print(f"[WARNING] Whisper verification failed: {exc}")
+            return ""
+
+    if isinstance(response, str):
+        return response.strip()
+
+    return str(getattr(response, "text", "") or "").strip()
+
+
+def _is_khmer_vocal_output(mp3_path):
+    transcript = _transcribe_generated_vocals(mp3_path, language_hint="km")
+    if not transcript:
+        # If verification is unavailable, do not block generation.
+        return True
+
+    ratio = _khmer_script_ratio(transcript)
+    print(f"[DEBUG] Khmer vocal check ratio={ratio:.2f} transcript_preview={transcript[:120]!r}")
+    return ratio >= KHMER_MIN_SCRIPT_RATIO
 
 
 def _clean_lyrics_for_tts(lyrics):
@@ -358,7 +435,7 @@ def _run_piapi_music_task(payload, progress_callback=None):
 
 def _generate_khmer_instrumental(style, mood, progress_callback=None):
     payload = {
-        "model": "Qubico/ace-step",
+        "model": DEFAULT_MUSIC_MODEL,
         "task_type": "txt2audio",
         "input": {
             "style_prompt": (
@@ -378,6 +455,17 @@ def _generate_khmer_instrumental(style, mood, progress_callback=None):
     }
 
     return _run_piapi_music_task(payload, progress_callback=progress_callback)
+
+
+def _generate_khmer_instrumental_fallback(style, mood, progress_callback=None):
+    if progress_callback:
+        progress_callback(
+            "⏳ Generating MP3...\n"
+            "Khmer vocals are unavailable, so creating instrumental fallback..."
+        )
+
+    instrumental_path = _generate_khmer_instrumental(style, mood, progress_callback=progress_callback)
+    return _optimize_mp3_file(instrumental_path)
 
 
 def _mix_voice_with_music(voice_path, music_path):
@@ -417,17 +505,62 @@ def _generate_khmer_song(style, mood, lyrics, singer_gender="female"):
         return None
 
 
-def _build_standard_music_payload(style, mood, lyrics, language="", singer_gender="female"):
+def _prepare_ace_lyrics(lyrics, force_khmer=False):
+    raw_lyrics = str(lyrics or "")
+
+    if force_khmer:
+        # Remove English section headers like [Verse 1] to reduce language drift.
+        khmer_lyrics = re.sub(r"\[[^\]]+\]", "\n", raw_lyrics)
+        # Keep Khmer script, Khmer digits, whitespace, and minimal punctuation only.
+        khmer_lyrics = re.sub(r"[^\u1780-\u17ff\u19e0-\u19ff\n\r\t !?.,;:'\"()\-]", " ", khmer_lyrics)
+        khmer_lyrics = re.sub(r"[ \t]+", " ", khmer_lyrics)
+        khmer_lyrics = re.sub(r"\n{2,}", "\n", khmer_lyrics).strip()
+        return khmer_lyrics or raw_lyrics
+
+    return re.sub(
+        r"\[([^\]]+)\]",
+        lambda m: "[" + m.group(1).lower().split()[0] + "]",
+        raw_lyrics,
+    )
+
+
+def _build_standard_music_payload(
+    style,
+    mood,
+    lyrics,
+    language="",
+    singer_gender="female",
+    khmer_strict_level=1,
+    model_name=DEFAULT_MUSIC_MODEL,
+):
     lang_lower = language.lower() if language else ""
+    is_khmer_request = "khmer" in lang_lower or "cambodian" in lang_lower or _contains_khmer(lyrics)
     normalized_gender = _normalize_singer_gender(singer_gender)
     vocal_prompt = f"{normalized_gender} singer, {normalized_gender} vocals"
 
-    if "khmer" in lang_lower or "cambodian" in lang_lower:
+    if is_khmer_request:
+        strict_fragment = ""
+        if khmer_strict_level >= 2:
+            strict_fragment += (
+                " prioritize Khmer diction and pronunciation; never switch to any non-Khmer language;"
+            )
+        if khmer_strict_level >= 3:
+            strict_fragment += (
+                " reject and avoid any latin-sounding words; keep all sung lines in Khmer script only;"
+            )
+
         style_prompt = (
-            f"Khmer language, Cambodian pop, {vocal_prompt}, khmer vocals, sing in Khmer, "
+            f"Khmer language only (km-KH), Cambodian pop, {vocal_prompt}, khmer vocals, sing only in Khmer, "
+            "pronounce Khmer lyrics naturally, do not switch language, "
+            "use the provided Khmer lyrics exactly, no translation, no transliteration, no romanization, "
+            f"{strict_fragment} "
             f"{style.lower()}, {mood.lower()}"
         )
-        negative_style_prompt = "english vocals, english lyrics, english language"
+        negative_style_prompt = (
+            "non-khmer lyrics, english vocals, english lyrics, english language, "
+            "thai lyrics, vietnamese lyrics, chinese lyrics, japanese lyrics, korean lyrics, "
+            "romanized lyrics, latin script lyrics, spoken word, narration, speech"
+        )
     elif language:
         style_prompt = (
             f"{language} language, {vocal_prompt}, {lang_lower} vocals, sing in {language}, "
@@ -438,14 +571,10 @@ def _build_standard_music_payload(style, mood, lyrics, language="", singer_gende
         style_prompt = f"{vocal_prompt}, {style.lower()}, {mood.lower()}"
         negative_style_prompt = ""
 
-    ace_lyrics = re.sub(
-        r"\[([^\]]+)\]",
-        lambda m: "[" + m.group(1).lower().split()[0] + "]",
-        lyrics
-    )
+    ace_lyrics = _prepare_ace_lyrics(lyrics, force_khmer=is_khmer_request)
 
     return {
-        "model": "Qubico/ace-step",
+        "model": model_name,
         "task_type": "txt2audio",
         "input": {
             "style_prompt": style_prompt,
@@ -464,14 +593,64 @@ def _build_standard_music_payload(style, mood, lyrics, language="", singer_gende
 
 def generate_music(style, topic, mood, lyrics, language="", singer_gender="female", progress_callback=None):
     lang_lower = language.lower() if language else ""
+    is_khmer_request = "khmer" in lang_lower or "cambodian" in lang_lower or _contains_khmer(lyrics)
 
-    if "khmer" in lang_lower or "cambodian" in lang_lower or _contains_khmer(lyrics):
-        print("[INFO] Khmer request detected, using Khmer voice + music fallback")
+    if is_khmer_request:
+        # Force Khmer through the singing model path; avoid TTS speech output.
+        print("[INFO] Khmer request detected, using singing model path")
         if progress_callback:
-            progress_callback("⏳ Generating MP3...\nPreparing Khmer vocals...")
-        khmer_result = _generate_khmer_song(style, mood, lyrics, singer_gender=singer_gender)
-        if khmer_result:
-            return _optimize_mp3_file(khmer_result)
+            progress_callback("⏳ Generating MP3...\nPreparing Khmer singing vocals...")
+
+        for model_index, model_name in enumerate(KHMER_MODEL_CANDIDATES, start=1):
+            print(f"[INFO] Khmer candidate model {model_index}/{len(KHMER_MODEL_CANDIDATES)}: {model_name}")
+
+            for strict_level in range(1, KHMER_MAX_LANGUAGE_RETRIES + 1):
+                payload = _build_standard_music_payload(
+                    style,
+                    mood,
+                    lyrics,
+                    language,
+                    singer_gender=singer_gender,
+                    khmer_strict_level=strict_level,
+                    model_name=model_name,
+                )
+                candidate_mp3 = _run_piapi_music_task(payload, progress_callback=progress_callback)
+                if _is_khmer_vocal_output(candidate_mp3):
+                    if strict_level > 1 or model_index > 1:
+                        print(
+                            f"[INFO] Khmer vocals accepted with model={model_name} "
+                            f"strict_level={strict_level}"
+                        )
+                    return _optimize_mp3_file(candidate_mp3)
+
+                final_model = model_index >= len(KHMER_MODEL_CANDIDATES)
+                final_strict = strict_level >= KHMER_MAX_LANGUAGE_RETRIES
+
+                if final_model and final_strict:
+                    print(
+                        f"[ERROR] Khmer vocal verification failed at strict level {strict_level} "
+                        f"for model {model_name}; rejecting output"
+                    )
+                else:
+                    print(
+                        f"[WARNING] Khmer vocal verification failed at strict level {strict_level} "
+                        f"for model {model_name}; trying next candidate..."
+                    )
+
+                if progress_callback and not (final_model and final_strict):
+                    progress_callback(
+                        "⏳ Generating MP3...\n"
+                        "Khmer language drift detected. Retrying model/strict mode..."
+                    )
+
+        # Do not return non-Khmer vocals for Khmer requests.
+        try:
+            return _generate_khmer_instrumental_fallback(style, mood, progress_callback=progress_callback)
+        except Exception as instrumental_error:
+            raise Exception(
+                "Khmer singing validation failed: provider returned non-Khmer vocals after multiple retries, "
+                "and the instrumental fallback also failed. Please try again later or switch provider/model."
+            ) from instrumental_error
 
     payload = _build_standard_music_payload(style, mood, lyrics, language, singer_gender=singer_gender)
     return _optimize_mp3_file(_run_piapi_music_task(payload, progress_callback=progress_callback))

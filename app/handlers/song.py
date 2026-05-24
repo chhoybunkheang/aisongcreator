@@ -485,7 +485,7 @@ async def _regenerate_lyrics_for_current_context(query, context):
             progress_message,
             "❌ Lyrics generation failed"
         )
-        error_msg = f"❌ Error generating lyrics:\n{str(e)}"
+        error_msg = _friendly_lyrics_error_message(e)
         if len(error_msg) > 4096:
             error_msg = error_msg[:4090] + "..."
         await context.bot.send_message(chat_id=query.message.chat_id, text=error_msg)
@@ -508,6 +508,25 @@ def _friendly_mp3_error_message(error):
         )
 
     return f"❌ Error generating MP3:\n{error_text}"
+
+
+def _friendly_lyrics_error_message(error):
+    error_text = str(error or "").strip()
+    lowered = error_text.lower()
+
+    if any(token in lowered for token in ("connecterror", "all connection attempts failed", "connection", "network")):
+        return (
+            "❌ Lyrics generation failed.\n\n"
+            "The lyrics server is temporarily unreachable. Please try again in a moment."
+        )
+
+    if any(token in lowered for token in ("timeout", "timed out", "429", "rate limit", "503", "504", "overloaded")):
+        return (
+            "❌ Lyrics generation is temporarily busy.\n\n"
+            "Please try again in a minute."
+        )
+
+    return f"❌ Error generating lyrics:\n{error_text}"
 
 
 async def _safe_answer(query):
@@ -701,7 +720,7 @@ async def pick_saved_lyrics(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_data["style"] = song.style
     user_data["topic"] = song.topic
     user_data["mood"] = song.mood
-    user_data["language"] = song.language
+    user_data["language"] = _detect_language_from_lyrics(song.lyrics or "") or (song.language or "English")
     user_data["lyrics"] = song.lyrics
     user_data["description"] = ""
 

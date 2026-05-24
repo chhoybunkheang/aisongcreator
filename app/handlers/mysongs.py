@@ -98,6 +98,25 @@ def _language_flag(language):
     return "🌐"
 
 
+def _detect_language_from_lyrics(lyrics):
+    text = (lyrics or "").strip()
+
+    if any("\u1780" <= char <= "\u17ff" for char in text):
+        return "Khmer"
+
+    if any("\u3040" <= char <= "\u30ff" for char in text):
+        return "Japanese"
+
+    if any("\u4e00" <= char <= "\u9fff" for char in text):
+        return "Chinese"
+
+    vietnamese_markers = set("ăâđêôơưáàảãạấầẩẫậắằẳẵặéèẻẽẹếềểễệíìỉĩịóòỏõọốồổỗộớờởỡợúùủũụứừửữựýỳỷỹỵ")
+    if any(char.lower() in vietnamese_markers for char in text):
+        return "Vietnamese"
+
+    return "English"
+
+
 def _lyrics_list_label(song):
     return f"{song.topic} {_language_flag(song.language)}"
 
@@ -350,13 +369,14 @@ async def ms_gen_mp3(update: Update, context: ContextTypes.DEFAULT_TYPE):
     progress_callback = make_progress_notifier(asyncio.get_running_loop(), query.message)
 
     try:
+        detected_language = _detect_language_from_lyrics(song.lyrics or "")
         mp3_file = await asyncio.to_thread(
             generate_music,
             style=song.style,
             topic=song.topic,
             mood=song.mood,
             lyrics=song.lyrics,
-            language=song.language or "",
+            language=detected_language or song.language or "",
             progress_callback=progress_callback,
         )
         update_song_mp3(song_id, mp3_file)

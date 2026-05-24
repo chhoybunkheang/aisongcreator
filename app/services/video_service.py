@@ -37,6 +37,7 @@ VIDEO_RETRY_DELAY_SECONDS = 2
 ANIMATED_COVER_SCALE = 1.08
 PULSE_BEATS_PER_SECOND = 1.9
 PULSE_SCALE_AMOUNT = 0.035
+ZERO_WIDTH_SUBTITLE_CHARS_RE = re.compile(r"[\u200b-\u200f\u2060\ufeff]")
 
 WINDOWS_FONTS_DIR = os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts")
 PROJECT_ROOT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
@@ -468,6 +469,56 @@ def _subtitle_preview(text, limit=80):
     return f"{normalized_text[:limit]}..."
 
 
+def _clean_subtitle_text(text):
+    normalized = str(text or "").replace("\r\n", "\n").replace("\r", "\n")
+    normalized = ZERO_WIDTH_SUBTITLE_CHARS_RE.sub("", normalized)
+    cleaned_lines = [line.strip() for line in normalized.split("\n") if line.strip()]
+    return "\n".join(cleaned_lines).strip()
+
+
+def _normalize_subtitle_segments(subtitle_segments, duration):
+    if not subtitle_segments:
+        return []
+
+    max_duration = max(float(duration or 0.0), 0.0)
+    normalized_segments = []
+    for segment in subtitle_segments:
+        if not isinstance(segment, dict):
+            continue
+
+        subtitle_text = _clean_subtitle_text(segment.get("text"))
+        if not subtitle_text:
+            continue
+
+        try:
+            start_time = float(segment.get("start", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            start_time = 0.0
+
+        try:
+            end_time = float(segment.get("end", start_time) or start_time)
+        except (TypeError, ValueError):
+            end_time = start_time
+
+        start_time = max(start_time, 0.0)
+
+        if end_time <= start_time:
+            if max_duration > start_time:
+                end_time = min(start_time + 2.0, max_duration)
+            else:
+                continue
+
+        normalized_segments.append(
+            {
+                "text": subtitle_text,
+                "start": round(start_time, 3),
+                "end": round(max(end_time, start_time + 0.1), 3),
+            }
+        )
+
+    return normalized_segments
+
+
 @lru_cache(maxsize=1)
 def _log_project_font_dir_state():
     try:
@@ -556,20 +607,34 @@ def _make_subtitle_text_clip(text, font_size, subtitle_width):
         # For CJK, strip spaces and chunk; for Khmer/Thai keep the text as-is.
         if _uses_cjk_char_layout(text):
             display_text = _wrap_cjk_subtitle_text(text)
+            _log_subtitle_render_choice(text, display_text, font_path, "label")
+            return TextClip(
+                text=display_text,
+                font=font_path,
+                font_size=font_size,
+                color=SUBTITLE_TEXT_COLOR,
+                stroke_color="black",
+                stroke_width=stroke_width,
+                method="label",
+                margin=(28, 18),
+                text_align="center",
+            )
         else:
             display_text = text
-        _log_subtitle_render_choice(text, display_text, font_path, "label")
-        return TextClip(
-            text=display_text,
-            font=font_path,
-            font_size=font_size,
-            color=SUBTITLE_TEXT_COLOR,
-            stroke_color="black",
-            stroke_width=stroke_width,
-            method="label",
-            margin=(28, 18),
-            text_align="center",
-        )
+            # Complex scripts like Khmer/Thai can clip in tightly-fit label mode.
+            _log_subtitle_render_choice(text, display_text, font_path, "caption")
+            return TextClip(
+                text=display_text,
+                font=font_path,
+                font_size=font_size,
+                color=SUBTITLE_TEXT_COLOR,
+                stroke_color="black",
+                stroke_width=stroke_width,
+                method="caption",
+                size=(subtitle_width, None),
+                margin=(34, 24),
+                text_align="center",
+            )
 
     _log_subtitle_render_choice(text, text, font_path, "caption")
     return TextClip(
@@ -662,14 +727,24 @@ def _build_timed_subtitle_clips(subtitle_segments, duration, frame_size):
     font_size = max(int(frame_height * 0.055), 28)
 
     subtitle_clips = []
-    for segment in subtitle_segments:
-        subtitle_text = str(segment.get("text") or "").strip()
+    for index, segment in enumerate(subtitle_segments):
+        subtitle_text = _clean_subtitle_text(segment.get("text"))
         start_time = float(segment.get("start", 0.0) or 0.0)
         end_time = float(segment.get("end", start_time) or start_time)
         if not subtitle_text or end_time <= start_time:
             continue
 
-        subtitle_clip = _make_subtitle_text_clip(subtitle_text, font_size, subtitle_width)
+        try:
+            subtitle_clip = _make_subtitle_text_clip(subtitle_text, font_size, subtitle_width)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Skipping subtitle segment render failure: index=%s text=%r error=%s",
+                index,
+                _subtitle_preview(subtitle_text),
+                exc,
+            )
+            continue
+
         subtitle_y = max(frame_height - SUBTITLE_BOTTOM_MARGIN - subtitle_clip.h, 0)
         subtitle_clips.append(
             subtitle_clip
@@ -708,7 +783,11 @@ def _contains_complex_shaping_script(text):
 
 
 def _should_use_ass_renderer(subtitle_segments):
-    return any(_contains_complex_shaping_script(segment.get("text", "")) for segment in subtitle_segments)
+    return any(
+        _contains_complex_shaping_script(segment.get("text", ""))
+        for segment in subtitle_segments
+        if isinstance(segment, dict)
+    )
 
 
 def _ass_timestamp(seconds):
@@ -767,7 +846,7 @@ def _write_ass_subtitle_file(subtitle_segments, frame_size):
     ]
 
     for segment in subtitle_segments:
-        subtitle_text = str(segment.get("text") or "").strip()
+        subtitle_text = _clean_subtitle_text(segment.get("text"))
         start_time = float(segment.get("start", 0.0) or 0.0)
         end_time = float(segment.get("end", start_time) or start_time)
         if not subtitle_text or end_time <= start_time:
@@ -830,7 +909,8 @@ def _burn_subtitles_with_ass(input_video_path, output_video_path, subtitle_segme
     tmp_output_path = f"{output_video_path}.assburn.mp4"
     escaped_ass_path = _ffmpeg_filter_path(ass_path)
     escaped_fonts_dir = _ffmpeg_filter_path(PROJECT_FONT_DIR)
-    subtitle_filter = f"subtitles={escaped_ass_path}:fontsdir={escaped_fonts_dir}"
+    # Force full unicode wrapping and OpenType complex shaping for Khmer/Thai.
+    subtitle_filter = f"subtitles={escaped_ass_path}:fontsdir={escaped_fonts_dir}:wrap_unicode=1:shaping=complex"
 
     command = [
         ffmpeg_path,
@@ -983,6 +1063,10 @@ def create_music_video(audio_path, image_path=None, output_path=None, animation_
                     subtitle_lines = _build_subtitle_lines(lyrics)
                     logger.info("Falling back to line-based subtitles: lines=%s output=%s", len(subtitle_lines), output_path)
                     subtitle_segments = _segments_from_subtitle_lines(subtitle_lines, audio.duration)
+
+                subtitle_segments = _normalize_subtitle_segments(subtitle_segments, audio.duration)
+                if not subtitle_segments:
+                    logger.warning("No valid subtitle segments after normalization; rendering video without subtitles")
 
                 use_ass_renderer = _should_use_ass_renderer(subtitle_segments)
                 if use_ass_renderer:

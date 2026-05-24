@@ -59,3 +59,14 @@ PAYMENT_SCREENSHOT_AI_ENABLED=true
 Users pay by scanning your QR or following your manual account instructions, then upload a screenshot for review.
 
 When `PAYMENT_SCREENSHOT_AI_ENABLED=true`, uploaded payment screenshots are analyzed by AI and sent to admin with a recommendation. Admin approval is still required.
+
+## Khmer singing fallback models
+
+If Khmer vocals drift into another language, set alternate music model IDs for Khmer requests:
+
+```env
+MUSIC_MODEL=Qubico/ace-step
+KHMER_MODEL_CANDIDATES=Qubico/ace-step
+```
+
+`KHMER_MODEL_CANDIDATES` accepts a comma-separated list. Put your best Khmer-capable music models first. The bot will try each model in order and reject outputs that do not verify as Khmer.
