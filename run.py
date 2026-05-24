@@ -103,10 +103,11 @@ def main():
         ms_cov_upload_handler,
         ms_cov_use_handler,
         ms_mp3_handler,
+        ms_receive_remix_video,
         ms_receive_uploaded_cover,
         ms_remix_audio_handler,
+        ms_remix_url_handler,
         ms_remix_ext_gen_handler,
-        ms_receive_remix_video,
         ms_remix_gen_handler,
         ms_remix_lang_handler,
         ms_remix_lyrics_handler,
@@ -207,6 +208,7 @@ def main():
     app.add_handler(ms_remix_src_sel_handler)
     app.add_handler(ms_remix_src_up_handler)
     app.add_handler(ms_remix_audio_handler)
+    app.add_handler(ms_remix_url_handler)
     app.add_handler(ms_remix_self_handler)
     app.add_handler(ms_remix_lyrics_handler)
     app.add_handler(ms_remix_gen_handler)

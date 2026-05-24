@@ -1,6 +1,7 @@
 ﻿import asyncio
 import json
 import os
+import re
 import uuid
 
 from telegram import (
@@ -1483,6 +1484,37 @@ async def ms_remix_src_sel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _show_remix_language_picker(context.bot, query.message.chat_id, song_id)
 
 
+def _is_youtube_url(text: str) -> bool:
+    """Return True if text looks like a YouTube video URL."""
+    text = (text or "").strip()
+    return bool(re.match(
+        r"^https?://(www\.)?(youtube\.com/watch|youtu\.be/|youtube\.com/shorts/)",
+        text,
+        re.IGNORECASE,
+    ))
+
+
+def _download_yt_audio(url: str, dest_base: str) -> str:
+    """Download audio from a YouTube URL and save as MP3. Returns the mp3 path."""
+    import yt_dlp  # lazy import — only needed for this feature
+
+    ydl_opts = {
+        "format": "bestaudio/best",
+        "outtmpl": dest_base + ".%(ext)s",
+        "postprocessors": [{
+            "key": "FFmpegExtractAudio",
+            "preferredcodec": "mp3",
+            "preferredquality": "128",
+        }],
+        "quiet": True,
+        "no_warnings": True,
+        "noprogress": True,
+    }
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        ydl.download([url])
+    return dest_base + ".mp3"
+
+
 async def ms_remix_src_up(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """User chose to upload an MP3 — set awaiting state and prompt."""
     query = update.callback_query
@@ -1491,8 +1523,9 @@ async def ms_remix_src_up(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     context.user_data["awaiting_remix_upload"] = song_id
     await query.message.reply_text(
-        "📤 Please send your MP3 file now.\n\n"
-        "_Send it as a file (Document) or audio message._",
+        "📤 Please send your reference audio:\n\n"
+        "• Send an MP3 file (as Document or audio)\n"
+        "• Or paste a YouTube link 🔗",
         parse_mode="Markdown",
     )
 
@@ -1531,6 +1564,33 @@ async def _process_remix_ref_mp3(message, context, dest, song_id):
     # Normal mode — ref is tied to a specific song
     context.user_data[f"remix_ref_{song_id}"] = dest
     await _show_remix_language_picker(context.bot, message.chat_id, song_id)
+
+
+async def ms_receive_remix_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Receive a YouTube URL as remix reference audio."""
+    song_id = context.user_data.get("awaiting_remix_upload")
+    if not song_id:
+        return
+
+    text = (update.message.text or "").strip()
+    if not _is_youtube_url(text):
+        return  # let other handlers deal with it
+
+    message = update.message
+    status_msg = await message.reply_text("⬇️ Downloading audio from YouTube…")
+    try:
+        upload_dir = os.path.join("temp", "remix_uploads")
+        os.makedirs(upload_dir, exist_ok=True)
+        dest_base = os.path.join(upload_dir, f"yt_{update.effective_user.id}_{song_id}")
+        dest = await asyncio.get_event_loop().run_in_executor(
+            None, lambda: _download_yt_audio(text, dest_base)
+        )
+        await status_msg.delete()
+    except Exception as e:
+        await status_msg.edit_text(f"❌ Failed to download from YouTube: {e}")
+        return
+
+    await _process_remix_ref_mp3(message, context, dest, song_id)
 
 
 async def ms_receive_remix_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1888,6 +1948,7 @@ ms_remix_src_lib_handler = CallbackQueryHandler(ms_remix_src_lib, pattern=r"^rem
 ms_remix_src_sel_handler = CallbackQueryHandler(ms_remix_src_sel, pattern=r"^remsrc_sel_\d+_\d+$")
 ms_remix_src_up_handler = CallbackQueryHandler(ms_remix_src_up, pattern=r"^remsrc_up_\d+$")
 ms_remix_audio_handler = MessageHandler(filters.AUDIO | filters.Document.MimeType("audio/mpeg"), ms_receive_remix_audio)
+ms_remix_url_handler = MessageHandler(filters.TEXT & ~filters.COMMAND, ms_receive_remix_url)
 ms_remix_self_handler = CallbackQueryHandler(ms_remix_self, pattern=r"^remixself_\d+$")
 ms_remix_lyrics_handler = CallbackQueryHandler(ms_remix_lyrics_pick, pattern=r"^remixlyrics_\d+$")
 ms_remix_gen_handler = CallbackQueryHandler(ms_remix_generate, pattern=r"^remixgen_\d+_.+$")
