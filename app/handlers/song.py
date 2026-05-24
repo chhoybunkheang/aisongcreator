@@ -51,7 +51,11 @@ from app.services.image_service import generate_cover_image
 from app.services.music_service import (
     generate_music,
 )
-from app.services.openai_service import generate_lyrics, generate_subtitle_timing
+from app.services.openai_service import (
+    generate_lyrics,
+    generate_subtitle_timing,
+    generate_title,
+)
 from app.services.video_service import create_music_video
 from app.states.song_states import (
     BUY_CREDITS,
@@ -189,10 +193,39 @@ def _singer_keyboard():
     ])
 
 
+def _parse_first_title(raw_text):
+    """Extract the first usable title from a numbered list returned by generate_title."""
+    import re as _re
+    for line in (raw_text or "").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        cleaned = _re.sub(r'^[\d]+[.)\-]\s*', '', line)
+        cleaned = _re.sub(r'^[-•*]\s*', '', cleaned)
+        cleaned = cleaned.strip().strip('"\'')
+        if cleaned and len(cleaned) <= 120:
+            return cleaned
+    return (raw_text or "").strip()[:60] or "My Song"
+
+
 def _detect_language_from_lyrics(lyrics):
     text = (lyrics or "").strip()
     enabled_languages = set(get_enabled_song_languages())
 
+    # --- Pass 1: explicit language request in text (e.g. "song in Chinese") ---
+    lower = text.lower()
+    _keyword_map = [
+        ("Khmer",      ["khmer", "cambodian", "in khmer", "ភាសាខ្មែរ"]),
+        ("Chinese",    ["chinese", "mandarin", "in chinese", "中文", "普通话"]),
+        ("Japanese",   ["japanese", "in japanese", "日本語"]),
+        ("Vietnamese", ["vietnamese", "in vietnamese", "tiếng việt"]),
+        ("English",    ["english", "in english"]),
+    ]
+    for lang, keywords in _keyword_map:
+        if lang in enabled_languages and any(kw in lower for kw in keywords):
+            return lang
+
+    # --- Pass 2: Unicode script detection ---
     if any("\u1780" <= char <= "\u17ff" for char in text) and "Khmer" in enabled_languages:
         return "Khmer"
 
@@ -345,9 +378,10 @@ def _review_mp3_keyboard():
     ])
 
 
-def _lyrics_preview_message(lyrics, generated=False):
+def _lyrics_preview_message(lyrics, generated=False, title=None):
     prefix = "🎵 Your AI Lyrics" if generated else "📝 Your Lyrics"
-    lyrics_msg = f"{prefix}\n\n{lyrics}"
+    title_line = f"\n🎤 Title: {title}" if title else ""
+    lyrics_msg = f"{prefix}{title_line}\n\n{lyrics}"
     if len(lyrics_msg) > 4096:
         lyrics_msg = lyrics_msg[:4090] + "..."
     return lyrics_msg
@@ -416,9 +450,14 @@ async def _show_lyrics_actions(context, chat_id):
 async def _send_lyrics_preview_and_actions(context, telegram_id, chat_id, lyrics, generated=False):
     context.user_data["lyrics"] = lyrics
 
+    title = (
+        context.user_data.get("topic")
+        if generated and not context.user_data.get("pasted_lyrics_mode")
+        else None
+    )
     await context.bot.send_message(
         chat_id=chat_id,
-        text=_lyrics_preview_message(lyrics, generated=generated),
+        text=_lyrics_preview_message(lyrics, generated=generated, title=title),
     )
     return await _show_lyrics_actions(context, chat_id)
 
@@ -471,6 +510,17 @@ async def _regenerate_lyrics_for_current_context(query, context):
             progress_message,
             "✅ Lyrics generated 100%"
         )
+
+        # Generate song title from lyrics (AI mode only — paste mode uses manually entered title)
+        if not context.user_data.get("pasted_lyrics_mode"):
+            try:
+                raw_titles = await asyncio.to_thread(
+                    generate_title, lyrics[:400], context.user_data.get("mood", "")
+                )
+                context.user_data["topic"] = _parse_first_title(raw_titles)
+            except Exception:
+                pass  # Keep the description-based placeholder title on failure
+
         return await _send_lyrics_preview_and_actions(
             context,
             query.from_user.id,
@@ -660,7 +710,13 @@ async def choose_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_data["description"] = ""
         chat_data["song_flow_message_id"] = query.message.message_id
         await query.edit_message_text(
-            "📝 What is the song title?",
+            "📝 What is your song about?\n\n"
+            "Describe your idea and the bot will generate a title for you.\n\n"
+            "Examples:\n"
+            "- A love story between two strangers in the rain\n"
+            "- Missing someone after a long journey\n"
+            "- Breakup at midnight, soft and sad\n"
+            "- Please create a romantic song in Chinese",
         )
         return TOPIC
 
@@ -781,26 +837,27 @@ async def get_music_style(update: Update, context: ContextTypes.DEFAULT_TYPE):
             update_song_context(context.user_data["song_id"], style=style)
         return await _show_pre_mp3_summary(context, update.message.reply_text)
 
-    if context.user_data.get("pasted_lyrics_mode"):
-        context.user_data["mood"] = ""
-        await replace_flow_message(
-            context,
-            update.message.reply_text,
-            f"🌍 Language detected: {context.user_data['language']}\n\nChoose a singer voice:",
-            reply_markup=_singer_keyboard(),
-            state_key="song_flow_message_id",
-        )
-        return SINGER
+    # Infer mood from style — skip the separate MOOD step
+    context.user_data["mood"] = style
+
+    # Auto-detect language from all user input text so any non-Latin script is caught
+    if not context.user_data.get("language"):
+        all_input = " ".join(filter(None, [
+            context.user_data.get("topic", ""),
+            context.user_data.get("description", ""),
+            context.user_data.get("lyrics", ""),
+        ]))
+        context.user_data["language"] = _detect_language_from_lyrics(all_input)
+    detected_lang = context.user_data["language"]
 
     await replace_flow_message(
         context,
         update.message.reply_text,
-        "😊 Choose a mood or type your own.\n\n"
-        f"Examples:\n{_mood_examples_text('custom')}",
-        reply_markup=_mood_keyboard("custom"),
+        f"🌍 Language detected: {detected_lang}\n\nChoose a singer voice:",
+        reply_markup=_singer_keyboard(),
         state_key="song_flow_message_id",
     )
-    return MOOD
+    return SINGER
 
 
 async def choose_music_style(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -827,20 +884,24 @@ async def choose_music_style(update: Update, context: ContextTypes.DEFAULT_TYPE)
             chat_id=query.message.chat_id,
         )
 
-    if context.user_data.get("pasted_lyrics_mode"):
-        context.user_data["mood"] = ""
-        await query.edit_message_text(
-            f"🌍 Language detected: {context.user_data['language']}\n\nChoose a singer voice:",
-            reply_markup=_singer_keyboard(),
-        )
-        return SINGER
+    # Infer mood from style — skip the separate MOOD step
+    context.user_data["mood"] = callback_value
+
+    # Auto-detect language from all user input text so any non-Latin script is caught
+    if not context.user_data.get("language"):
+        all_input = " ".join(filter(None, [
+            context.user_data.get("topic", ""),
+            context.user_data.get("description", ""),
+            context.user_data.get("lyrics", ""),
+        ]))
+        context.user_data["language"] = _detect_language_from_lyrics(all_input)
+    detected_lang = context.user_data["language"]
 
     await query.edit_message_text(
-        "😊 Choose a mood or type your own.\n\n"
-        f"Examples:\n{_mood_examples_text('custom')}",
-        reply_markup=_mood_keyboard("custom"),
+        f"🌍 Language detected: {detected_lang}\n\nChoose a singer voice:",
+        reply_markup=_singer_keyboard(),
     )
-    return MOOD
+    return SINGER
 
 
 # -----------------------------
@@ -848,20 +909,26 @@ async def choose_music_style(update: Update, context: ContextTypes.DEFAULT_TYPE)
 # -----------------------------
 async def get_topic(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-    topic, error_message = validate_topic(update.message.text)
-    if error_message:
-        await update.message.reply_text(error_message)
+    raw_input = (update.message.text or "").strip()
+    if not raw_input:
+        await update.message.reply_text("❌ Please describe what you want the song to be about.")
         return TOPIC
 
-    context.user_data["topic"] = topic
+    pasted_mode = context.user_data.get("pasted_lyrics_mode", False)
 
-    if context.user_data.pop("summary_edit_field", None) == "topic":
-        if context.user_data.get("song_id"):
-            update_song_context(context.user_data["song_id"], topic=topic)
-        return await _show_pre_mp3_summary(context, update.message.reply_text)
+    if pasted_mode:
+        # In paste mode, user is entering the song title directly — keep short validation
+        topic, error_message = validate_topic(raw_input)
+        if error_message:
+            await update.message.reply_text(error_message)
+            return TOPIC
+        context.user_data["topic"] = topic
 
-    if context.user_data.get("pasted_lyrics_mode"):
-        context.user_data["description"] = ""
+        if context.user_data.pop("summary_edit_field", None) == "topic":
+            if context.user_data.get("song_id"):
+                update_song_context(context.user_data["song_id"], topic=topic)
+            return await _show_pre_mp3_summary(context, update.message.reply_text)
+
         await replace_flow_message(
             context,
             update.message.reply_text,
@@ -872,20 +939,33 @@ async def get_topic(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return MUSIC_STYLE
 
+    # AI path — user typed a description/idea; validate as description (up to 500 chars)
+    if len(raw_input) > 500:
+        await update.message.reply_text("❌ Description is too long. Please keep it under 500 characters.")
+        return TOPIC
+
+    # Save the user’s idea as description for lyrics generation
+    context.user_data["description"] = raw_input
+
+    if context.user_data.pop("summary_edit_field", None) == "topic":
+        # When editing title from the summary screen just use the raw input as title
+        context.user_data["topic"] = raw_input[:120]
+        if context.user_data.get("song_id"):
+            update_song_context(context.user_data["song_id"], topic=raw_input[:120])
+        return await _show_pre_mp3_summary(context, update.message.reply_text)
+
+    # Placeholder title from the description — real title generated from lyrics later
+    context.user_data["topic"] = raw_input[:60].strip() or "My Song"
+
     await replace_flow_message(
         context,
         update.message.reply_text,
-        "✍️ Tell me more about the song prompt or story.\n\n"
-        "Example:\n"
-        "- a breakup at midnight\n"
-        "- soft romantic words\n"
-        "- from a girl to a boy\n"
-        "- mention rain, memories, and pain\n\n"
-        "You can type extra details or tap Skip.",
-        reply_markup=_description_keyboard(),
+        "🎼 Choose a music style or type your own.\n\n"
+        "Examples:\n- Remix\n- Rap\n- Romantic\n- Sad Song",
+        reply_markup=_music_style_keyboard(),
         state_key="song_flow_message_id",
     )
-    return DESCRIPTION
+    return MUSIC_STYLE
 
 
 # -----------------------------
@@ -1030,11 +1110,12 @@ async def lyrics_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if query.data == "lyrics_continue":
         _persist_current_lyrics(context, query.from_user.id)
-        return await _show_pre_mp3_summary(
-            context,
-            context.bot.send_message,
+        await context.bot.send_message(
             chat_id=query.message.chat_id,
+            text="🎧 Do you want to convert this to MP3?",
+            reply_markup=_mp3_delivery_keyboard(),
         )
+        return CONFIRM_MP3
 
     if query.data == "lyrics_edit":
         await query.edit_message_text(
@@ -1332,10 +1413,6 @@ async def choose_cover_source(update: Update, context: ContextTypes.DEFAULT_TYPE
             reply_markup=_yes_no_keyboard(),
         )
         return CONFIRM_VIDEO
-
-    topic = context.user_data["topic"]
-    mood = context.user_data["mood"]
-    style = context.user_data["style"]
 
     await query.edit_message_text(
         "❌ Generated image is not available right now. Please upload an image or upload a video instead.",
