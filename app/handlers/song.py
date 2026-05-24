@@ -1149,11 +1149,7 @@ async def review_mp3(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _safe_answer(query)
 
     if query.data == "review_continue":
-        await query.edit_message_text(
-            "🎧 Do you want to convert this to MP3?",
-            reply_markup=_mp3_delivery_keyboard(),
-        )
-        return CONFIRM_MP3
+        return await _do_generate_mp3(query, context)
 
     if query.data == "review_title":
         context.user_data["summary_edit_field"] = "topic"
