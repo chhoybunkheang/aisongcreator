@@ -1398,8 +1398,26 @@ async def add_subtitle_to_video(update: Update, context: ContextTypes.DEFAULT_TY
 # -----------------------------------
 # REMIX LANGUAGE HANDLERS
 # -----------------------------------
+
+async def _show_remix_language_picker(bot, chat_id, song_id):
+    """Show the target language selection keyboard."""
+    languages = get_enabled_song_languages()
+    buttons = []
+    for i in range(0, len(languages), 2):
+        row = [InlineKeyboardButton(languages[i], callback_data=f"remixgen_{song_id}_{languages[i]}")]
+        if i + 1 < len(languages):
+            row.append(InlineKeyboardButton(languages[i + 1], callback_data=f"remixgen_{song_id}_{languages[i + 1]}"))
+        buttons.append(row)
+    await bot.send_message(
+        chat_id=chat_id,
+        text="🌍 *Choose the target language for the remix:*",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(buttons),
+    )
+
+
 async def ms_remix_pick_language(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Show language selection keyboard for remixing."""
+    """First step: ask whether to use library or upload an MP3."""
     query = update.callback_query
     await query.answer()
     song_id = int(query.data.split("_")[1])
@@ -1409,19 +1427,109 @@ async def ms_remix_pick_language(update: Update, context: ContextTypes.DEFAULT_T
         await query.message.reply_text("Song not found.")
         return
 
-    languages = get_enabled_song_languages()
+    markup = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("📚 From My Library", callback_data=f"remsrc_lib_{song_id}"),
+            InlineKeyboardButton("📤 Upload MP3", callback_data=f"remsrc_up_{song_id}"),
+        ]
+    ])
+    await query.message.reply_text(
+        "🔄 *Remix in Another Language*\n\nChoose the style reference MP3:",
+        parse_mode="Markdown",
+        reply_markup=markup,
+    )
+
+
+async def ms_remix_src_lib(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show the user's saved MP3 songs as reference choices."""
+    query = update.callback_query
+    await query.answer()
+    song_id = int(query.data.split("_")[2])
+
+    songs = get_user_songs(query.from_user.id)
+    mp3_songs = [s for s in songs if s.mp3_path and os.path.exists(str(s.mp3_path))]
+
+    if not mp3_songs:
+        await query.message.reply_text("You have no saved MP3 songs to pick from.")
+        return
+
     buttons = []
-    for i in range(0, len(languages), 2):
-        row = [InlineKeyboardButton(languages[i], callback_data=f"remixgen_{song_id}_{languages[i]}")]
-        if i + 1 < len(languages):
-            row.append(InlineKeyboardButton(languages[i + 1], callback_data=f"remixgen_{song_id}_{languages[i + 1]}"))
-        buttons.append(row)
+    for s in mp3_songs[:20]:
+        label = (s.topic or f"Song #{s.id}")[:30]
+        buttons.append([InlineKeyboardButton(f"🎵 {label}", callback_data=f"remsrc_sel_{s.id}_{song_id}")])
 
     await query.message.reply_text(
-        "🔄 *Remix in another language*\n\nChoose the target language:",
+        "📚 *Pick a reference MP3:*",
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(buttons),
     )
+
+
+async def ms_remix_src_sel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """User picked a library song as reference — store its path and show language picker."""
+    query = update.callback_query
+    await query.answer()
+
+    parts = query.data.split("_")  # remsrc_sel_{ref_id}_{song_id}
+    ref_id = int(parts[2])
+    song_id = int(parts[3])
+
+    ref_song = get_song_by_id(ref_id)
+    if not ref_song or not ref_song.mp3_path or not os.path.exists(str(ref_song.mp3_path)):
+        await query.message.reply_text("Reference MP3 not found.")
+        return
+
+    context.user_data[f"remix_ref_{song_id}"] = str(ref_song.mp3_path)
+    await _show_remix_language_picker(context.bot, query.message.chat_id, song_id)
+
+
+async def ms_remix_src_up(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """User chose to upload an MP3 — set awaiting state and prompt."""
+    query = update.callback_query
+    await query.answer()
+    song_id = int(query.data.split("_")[2])
+
+    context.user_data["awaiting_remix_upload"] = song_id
+    await query.message.reply_text(
+        "📤 Please send your MP3 file now.\n\n"
+        "_Send it as a file (Document) or audio message._",
+        parse_mode="Markdown",
+    )
+
+
+async def ms_receive_remix_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Receive an uploaded MP3 and show the language picker."""
+    song_id = context.user_data.get("awaiting_remix_upload")
+    if not song_id:
+        return
+
+    message = update.message
+    file_obj = None
+    if message.audio:
+        file_obj = message.audio
+    elif message.document and message.document.mime_type in (
+        "audio/mpeg", "audio/mp3", "audio/x-mp3"
+    ):
+        file_obj = message.document
+
+    if not file_obj:
+        await message.reply_text("Please send an MP3 audio file.")
+        return
+
+    try:
+        tg_file = await file_obj.get_file()
+        upload_dir = os.path.join("temp", "remix_uploads")
+        os.makedirs(upload_dir, exist_ok=True)
+        dest = os.path.join(upload_dir, f"upload_{update.effective_user.id}_{song_id}.mp3")
+        await tg_file.download_to_drive(dest)
+    except Exception as e:
+        await message.reply_text(f"Failed to download the file: {e}")
+        return
+
+    context.user_data[f"remix_ref_{song_id}"] = dest
+    del context.user_data["awaiting_remix_upload"]
+
+    await _show_remix_language_picker(context.bot, message.chat_id, song_id)
 
 
 async def ms_remix_generate(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1438,8 +1546,9 @@ async def ms_remix_generate(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text("Song not found.")
         return
 
-    if not song.mp3_path or not os.path.exists(song.mp3_path):
-        await query.message.reply_text("Original MP3 file not found. Cannot remix.")
+    ref_mp3 = context.user_data.get(f"remix_ref_{song_id}")
+    if not ref_mp3 or not os.path.exists(ref_mp3):
+        await query.message.reply_text("Reference MP3 not found. Please start over.")
         return
 
     credit_reserved = deduct_credit(query.from_user.id)
@@ -1471,7 +1580,7 @@ async def ms_remix_generate(update: Update, context: ContextTypes.DEFAULT_TYPE):
         mp3_path = await asyncio.get_event_loop().run_in_executor(
             None,
             lambda: generate_music_remix(
-                song.mp3_path,
+                ref_mp3,
                 style_prompt,
                 translated_lyrics,
                 language=target_language,
@@ -1495,6 +1604,8 @@ async def ms_remix_generate(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         if new_song:
             update_song_mp3(new_song.id, mp3_path)
+
+        context.user_data.pop(f"remix_ref_{song_id}", None)
 
         await context.bot.send_audio(
             chat_id=query.message.chat_id,
@@ -1540,4 +1651,8 @@ add_subtitle_handler = CallbackQueryHandler(add_subtitle_to_video, pattern=r"^vi
 mylyrics_handler = MessageHandler(filters.TEXT & filters.Regex(r"^📝 My Lyrics$"), my_lyrics)
 lyrics_detail_handler = CallbackQueryHandler(lyrics_detail, pattern=r"^lyr_\d+$")
 ms_remix_lang_handler = CallbackQueryHandler(ms_remix_pick_language, pattern=r"^remixlang_\d+$")
+ms_remix_src_lib_handler = CallbackQueryHandler(ms_remix_src_lib, pattern=r"^remsrc_lib_\d+$")
+ms_remix_src_sel_handler = CallbackQueryHandler(ms_remix_src_sel, pattern=r"^remsrc_sel_\d+_\d+$")
+ms_remix_src_up_handler = CallbackQueryHandler(ms_remix_src_up, pattern=r"^remsrc_up_\d+$")
+ms_remix_audio_handler = MessageHandler(filters.AUDIO | filters.Document.MimeType("audio/mpeg"), ms_receive_remix_audio)
 ms_remix_gen_handler = CallbackQueryHandler(ms_remix_generate, pattern=r"^remixgen_\d+_.+$")

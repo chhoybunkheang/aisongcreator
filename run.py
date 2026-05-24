@@ -106,6 +106,10 @@ def main():
         ms_receive_uploaded_cover,
         ms_remix_gen_handler,
         ms_remix_lang_handler,
+        ms_remix_src_lib_handler,
+        ms_remix_src_sel_handler,
+        ms_remix_src_up_handler,
+        ms_remix_audio_handler,
         ms_skip_handler,
         ms_vid_choice_handler,
         ms_vid_handler,
@@ -191,6 +195,10 @@ def main():
     app.add_handler(watch_video_handler)
     app.add_handler(add_subtitle_handler)
     app.add_handler(ms_remix_lang_handler)
+    app.add_handler(ms_remix_src_lib_handler)
+    app.add_handler(ms_remix_src_sel_handler)
+    app.add_handler(ms_remix_src_up_handler)
+    app.add_handler(ms_remix_audio_handler)
     app.add_handler(ms_remix_gen_handler)
     app.add_handler(buycredits_handler)
     from app.handlers.help import settings_text_handler
