@@ -110,6 +110,8 @@ def main():
         ms_remix_src_sel_handler,
         ms_remix_src_up_handler,
         ms_remix_audio_handler,
+        ms_remix_self_handler,
+        ms_remix_lyrics_handler,
         ms_skip_handler,
         ms_vid_choice_handler,
         ms_vid_handler,
@@ -199,6 +201,8 @@ def main():
     app.add_handler(ms_remix_src_sel_handler)
     app.add_handler(ms_remix_src_up_handler)
     app.add_handler(ms_remix_audio_handler)
+    app.add_handler(ms_remix_self_handler)
+    app.add_handler(ms_remix_lyrics_handler)
     app.add_handler(ms_remix_gen_handler)
     app.add_handler(buycredits_handler)
     from app.handlers.help import settings_text_handler

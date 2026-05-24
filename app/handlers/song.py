@@ -707,21 +707,44 @@ async def choose_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _safe_answer(query)
 
     if query.data == "type_remix":
+        markup = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("📚 From My Library", callback_data="type_remixlib"),
+                InlineKeyboardButton("📤 Upload MP3", callback_data="type_remixup"),
+            ]
+        ])
+        await query.edit_message_text(
+            "🔄 *Remix Language*\n\nChoose the style reference MP3:",
+            parse_mode="Markdown",
+            reply_markup=markup,
+        )
+        return CHOOSE_TYPE
+
+    if query.data == "type_remixlib":
         songs = get_user_songs(query.from_user.id)
-        mp3_songs = [s for s in songs if getattr(s, "mp3_path", None)]
+        mp3_songs = [s for s in songs if getattr(s, "mp3_path", None) and getattr(s, "lyrics", None)]
         if not mp3_songs:
             await query.edit_message_text(
-                "You don't have any MP3 songs yet.\n\nCreate a song first, then use Remix Language."
+                "You don't have any MP3 songs with lyrics yet.\n\nCreate a song first, then use Remix Language."
             )
             return ConversationHandler.END
         keyboard = [
-            [InlineKeyboardButton(str(s.topic or f"Song #{s.id}"), callback_data=f"remixlang_{s.id}")]
+            [InlineKeyboardButton(str(s.topic or f"Song #{s.id}"), callback_data=f"remixself_{s.id}")]
             for s in mp3_songs[:20]
         ]
         await query.edit_message_text(
-            "🔄 *Remix Language*\n\nPick a song to remix:",
+            "📚 *Pick a song to remix:*",
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup(keyboard),
+        )
+        return ConversationHandler.END
+
+    if query.data == "type_remixup":
+        context.user_data["awaiting_remix_upload"] = "new"
+        await query.edit_message_text(
+            "📤 Please send your MP3 file now.\n\n"
+            "_Send it as a file (Document) or audio message._",
+            parse_mode="Markdown",
         )
         return ConversationHandler.END
 
