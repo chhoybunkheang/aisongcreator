@@ -1512,6 +1512,9 @@ def _download_yt_audio(url: str, dest_base: str) -> str:
         }],
         "ffmpeg_location": get_ffmpeg_exe(),
         "extractor_args": {"youtube": {"player_client": ["ios", "android"]}},
+        "socket_timeout": 60,
+        "retries": 5,
+        "fragment_retries": 5,
         "quiet": True,
         "no_warnings": True,
         "noprogress": True,
@@ -1602,7 +1605,7 @@ async def ms_receive_remix_url(update: Update, context: ContextTypes.DEFAULT_TYP
         "⬇️ Downloading audio from YouTube…",
         start_percent=1,
         max_percent=90,
-        total_seconds=40,
+        total_seconds=120,
     )
     try:
         upload_dir = os.path.join("temp", "remix_uploads")
