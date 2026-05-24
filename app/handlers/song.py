@@ -711,7 +711,10 @@ async def choose_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [
                 InlineKeyboardButton("📚 From My Library", callback_data="type_remixlib"),
                 InlineKeyboardButton("📤 Upload MP3", callback_data="type_remixup"),
-            ]
+            ],
+            [
+                InlineKeyboardButton("📋 Paste Lyrics", callback_data="type_paste"),
+            ],
         ])
         await query.edit_message_text(
             "🔄 *Remix Language*\n\nChoose the style reference MP3:",
@@ -719,6 +722,7 @@ async def choose_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=markup,
         )
         return CHOOSE_TYPE
+
 
     if query.data == "type_remixlib":
         songs = get_user_songs(query.from_user.id)
