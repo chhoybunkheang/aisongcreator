@@ -110,6 +110,18 @@ def _yes_no_keyboard():
     ])
 
 
+def _video_keyboard(song_id=None):
+    rows = [
+        [
+            InlineKeyboardButton("✅ Yes", callback_data="yes"),
+            InlineKeyboardButton("❌ No", callback_data="no"),
+        ]
+    ]
+    if song_id:
+        rows.append([InlineKeyboardButton("🔄 Remix Language", callback_data=f"remixlang_{song_id}")])
+    return InlineKeyboardMarkup(rows)
+
+
 def _mp3_caption(title):
     return f"🎵 Title: {title}\nCreated by: {BOT_USERNAME_LABEL}"
 
@@ -1266,7 +1278,7 @@ async def _do_generate_mp3(query, context):
             context.bot.send_message,
             chat_id=query.message.chat_id,
             text="🎬 Do you want to create a video?\n\nIf yes, you can upload an image, upload a video, or use the generated image.",
-            reply_markup=_yes_no_keyboard(),
+            reply_markup=_video_keyboard(song_id),
             state_key="song_flow_message_id",
         )
         return CONFIRM_VIDEO_START
@@ -1317,6 +1329,11 @@ async def confirm_video_start(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     query = update.callback_query
     await _safe_answer(query)
+
+    if query.data.startswith("remixlang_"):
+        from app.handlers.mysongs import ms_remix_pick_language
+        await ms_remix_pick_language(update, context)
+        return ConversationHandler.END
 
     if query.data == "no":
         context.user_data.pop("generated_cover_task", None)
