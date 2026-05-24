@@ -1110,12 +1110,7 @@ async def lyrics_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if query.data == "lyrics_continue":
         _persist_current_lyrics(context, query.from_user.id)
-        await context.bot.send_message(
-            chat_id=query.message.chat_id,
-            text="🎧 Do you want to convert this to MP3?",
-            reply_markup=_mp3_delivery_keyboard(),
-        )
-        return CONFIRM_MP3
+        return await _do_generate_mp3(query, context)
 
     if query.data == "lyrics_edit":
         await query.edit_message_text(
@@ -1178,23 +1173,10 @@ async def review_mp3(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # -----------------------------
-# CONFIRM MP3
+# SHARED MP3 GENERATION
 # -----------------------------
-async def confirm_mp3(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    query = update.callback_query
-    await _safe_answer(query)
-
-    action = query.data or ""
-
-    if action in {"no", "mp3_cancel"}:
-        await query.edit_message_text("👍 Okay! Song creation stopped.")
-        return ConversationHandler.END
-
-    if action not in {"yes", "mp3_full", ""}:
-        await query.edit_message_text("❌ Invalid option.")
-        return ConversationHandler.END
-
+async def _do_generate_mp3(query, context):
+    """Deduct credit and generate MP3, then proceed to video prompt."""
     credit_reserved = deduct_credit(query.from_user.id)
     if not credit_reserved:
         await query.edit_message_text(
@@ -1309,6 +1291,27 @@ async def confirm_mp3(update: Update, context: ContextTypes.DEFAULT_TYPE):
             error_msg = error_msg[:4090] + "..."
         await context.bot.send_message(chat_id=query.message.chat_id, text=error_msg)
         return ConversationHandler.END
+
+
+# -----------------------------
+# CONFIRM MP3
+# -----------------------------
+async def confirm_mp3(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    query = update.callback_query
+    await _safe_answer(query)
+
+    action = query.data or ""
+
+    if action in {"no", "mp3_cancel"}:
+        await query.edit_message_text("👍 Okay! Song creation stopped.")
+        return ConversationHandler.END
+
+    if action not in {"yes", "mp3_full", ""}:
+        await query.edit_message_text("❌ Invalid option.")
+        return ConversationHandler.END
+
+    return await _do_generate_mp3(query, context)
 
 
 # -----------------------------
