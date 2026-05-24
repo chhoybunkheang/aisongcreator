@@ -1553,14 +1553,25 @@ async def ms_receive_remix_audio(update: Update, context: ContextTypes.DEFAULT_T
         await message.reply_text("Please send an MP3 audio file.")
         return
 
+    MAX_BYTES = 20 * 1024 * 1024
+    file_size = getattr(file_obj, "file_size", None)
+    if file_size and file_size > MAX_BYTES:
+        await message.reply_text(
+            "⚠️ That file is too large (Telegram allows bots to download up to 20 MB).\n"
+            "Please send a smaller MP3."
+        )
+        return
+
+    status_msg = await message.reply_text("⬇️ Downloading audio…")
     try:
         tg_file = await file_obj.get_file()
         upload_dir = os.path.join("temp", "remix_uploads")
         os.makedirs(upload_dir, exist_ok=True)
         dest = os.path.join(upload_dir, f"upload_{update.effective_user.id}_{song_id}.mp3")
         await tg_file.download_to_drive(dest)
+        await status_msg.delete()
     except Exception as e:
-        await message.reply_text(f"Failed to download the file: {e}")
+        await status_msg.edit_text(f"❌ Failed to download the file: {e}")
         return
 
     await _process_remix_ref_mp3(message, context, dest, song_id)
@@ -1582,6 +1593,17 @@ async def ms_receive_remix_video(update: Update, context: ContextTypes.DEFAULT_T
     if not file_obj:
         return
 
+    # Telegram bots cannot download files larger than 20 MB
+    MAX_BYTES = 20 * 1024 * 1024
+    file_size = getattr(file_obj, "file_size", None)
+    if file_size and file_size > MAX_BYTES:
+        await message.reply_text(
+            "⚠️ That video is too large (Telegram allows bots to download up to 20 MB).\n"
+            "Please trim the video or extract the audio as an MP3 and send that instead."
+        )
+        return
+
+    status_msg = await message.reply_text("⬇️ Downloading video…")
     try:
         tg_file = await file_obj.get_file()
         upload_dir = os.path.join("temp", "remix_uploads")
@@ -1589,17 +1611,17 @@ async def ms_receive_remix_video(update: Update, context: ContextTypes.DEFAULT_T
         vid_dest = os.path.join(upload_dir, f"upload_{update.effective_user.id}_{song_id}.mp4")
         await tg_file.download_to_drive(vid_dest)
     except Exception as e:
-        await message.reply_text(f"Failed to download the video: {e}")
+        await status_msg.edit_text(f"❌ Failed to download the video: {e}")
         return
 
     try:
-        status_msg = await message.reply_text("🎬 Extracting audio from video…")
+        await status_msg.edit_text("🎬 Extracting audio from video…")
         mp3_dest = await asyncio.get_event_loop().run_in_executor(
             None, lambda: extract_audio_from_video(vid_dest)
         )
         await status_msg.delete()
     except Exception as e:
-        await message.reply_text(f"❌ Could not extract audio from video: {e}")
+        await status_msg.edit_text(f"❌ Could not extract audio from video: {e}")
         return
 
     await _process_remix_ref_mp3(message, context, mp3_dest, song_id)
