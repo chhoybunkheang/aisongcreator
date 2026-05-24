@@ -25,10 +25,12 @@ from app.config.settings import (
 )
 from app.database.queries import (
     deduct_credit,
+    get_enabled_song_languages,
     get_song_by_id,
     get_user,
     get_user_songs,
     refund_credit,
+    save_song,
     update_song_cover,
     update_song_lyrics,
     update_song_mp3,
@@ -37,10 +39,11 @@ from app.database.queries import (
     update_song_video,
 )
 from app.services.image_service import generate_cover_image
-from app.services.music_service import generate_music
+from app.services.music_service import generate_music, generate_music_remix
 from app.services.openai_service import (
     generate_subtitle_timing,
     transcribe_lyrics_from_mp3,
+    translate_lyrics,
 )
 from app.services.video_service import create_music_video
 from app.utils.helpers import (
@@ -206,6 +209,11 @@ def _mp3_action_markup(song):
     if not song.lyrics:
         rows.append([
             InlineKeyboardButton("📝 Lyrics From MP3", callback_data=f"mp3lyrics_{song.id}"),
+        ])
+
+    if song.lyrics:
+        rows.append([
+            InlineKeyboardButton("🔄 Remix Language", callback_data=f"remixlang_{song.id}"),
         ])
 
     return InlineKeyboardMarkup(rows)
@@ -1387,6 +1395,126 @@ async def add_subtitle_to_video(update: Update, context: ContextTypes.DEFAULT_TY
         await context.bot.send_message(chat_id=query.message.chat_id, text=error_msg)
 
 
+# -----------------------------------
+# REMIX LANGUAGE HANDLERS
+# -----------------------------------
+async def ms_remix_pick_language(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show language selection keyboard for remixing."""
+    query = update.callback_query
+    await query.answer()
+    song_id = int(query.data.split("_")[1])
+
+    song = get_song_by_id(song_id)
+    if not song or song.user_id != query.from_user.id:
+        await query.message.reply_text("Song not found.")
+        return
+
+    languages = get_enabled_song_languages()
+    buttons = []
+    for i in range(0, len(languages), 2):
+        row = [InlineKeyboardButton(languages[i], callback_data=f"remixgen_{song_id}_{languages[i]}")]
+        if i + 1 < len(languages):
+            row.append(InlineKeyboardButton(languages[i + 1], callback_data=f"remixgen_{song_id}_{languages[i + 1]}"))
+        buttons.append(row)
+
+    await query.message.reply_text(
+        "🔄 *Remix in another language*\n\nChoose the target language:",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(buttons),
+    )
+
+
+async def ms_remix_generate(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Translate lyrics + generate audio2audio remix in selected language."""
+    query = update.callback_query
+    await query.answer()
+
+    parts = query.data.split("_", 2)  # remixgen_{song_id}_{language}
+    song_id = int(parts[1])
+    target_language = parts[2]
+
+    song = get_song_by_id(song_id)
+    if not song or song.user_id != query.from_user.id:
+        await query.message.reply_text("Song not found.")
+        return
+
+    if not song.mp3_path or not os.path.exists(song.mp3_path):
+        await query.message.reply_text("Original MP3 file not found. Cannot remix.")
+        return
+
+    credit_reserved = deduct_credit(query.from_user.id)
+    if not credit_reserved:
+        await query.message.reply_text(
+            "❌ Not enough credits to remix.\nUse /buycredits to purchase more."
+        )
+        return
+
+    progress_message = None
+    progress_task = None
+    progress_stop = None
+
+    try:
+        progress_message, progress_task, progress_stop = await start_progress_message(
+            context.bot, query.message.chat_id, "⏳ Remixing song..."
+        )
+        notifier = make_progress_notifier(progress_stop, progress_task, progress_message, context.bot, query.message.chat_id)
+
+        # Step 1 — translate lyrics
+        source_language = song.language or "English"
+        translated_lyrics = translate_lyrics(
+            song.lyrics, source_language, target_language,
+            progress_callback=notifier
+        )
+
+        # Step 2 — audio2audio generation
+        style_prompt = f"{song.style or ''}, {song.mood or ''}".strip(", ")
+        mp3_path = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: generate_music_remix(
+                song.mp3_path,
+                style_prompt,
+                translated_lyrics,
+                language=target_language,
+                singer_gender="female",
+                progress_callback=notifier,
+            ),
+        )
+
+        await stop_progress_message(progress_task, progress_stop, progress_message, "✅ Remix complete!")
+
+        # Save new song entry
+        user = get_user(query.from_user.id)
+        new_song = save_song(
+            telegram_id=query.from_user.id,
+            style=song.style,
+            topic=song.topic,
+            mood=song.mood,
+            description=song.description,
+            language=target_language,
+            lyrics=translated_lyrics,
+        )
+        if new_song:
+            update_song_mp3(new_song.id, mp3_path)
+
+        await context.bot.send_audio(
+            chat_id=query.message.chat_id,
+            audio=open(mp3_path, "rb"),
+            title=f"{song.topic or 'Remix'} ({target_language})",
+            caption=f"🔄 Remix in *{target_language}*\n\n💎 Remaining Credits: {user.credits if user else '?'}",
+            parse_mode="Markdown",
+        )
+
+    except Exception as e:
+        refund_credit(query.from_user.id)
+        await stop_progress_message(
+            progress_task, progress_stop, progress_message, "Remix failed"
+        )
+        error_msg = f"❌ Remix failed:\n{str(e)}"
+        if len(error_msg) > 4096:
+            error_msg = error_msg[:4090] + "..."
+        await context.bot.send_message(chat_id=query.message.chat_id, text=error_msg)
+
+
 song_detail_handler = CallbackQueryHandler(
     song_detail,
     pattern=r"^song_\d+$"
@@ -1411,3 +1539,5 @@ watch_video_handler = CallbackQueryHandler(watch_video, pattern=r"^watchvid_\d+$
 add_subtitle_handler = CallbackQueryHandler(add_subtitle_to_video, pattern=r"^vidsub(_(yes|no))?_\d+$")
 mylyrics_handler = MessageHandler(filters.TEXT & filters.Regex(r"^📝 My Lyrics$"), my_lyrics)
 lyrics_detail_handler = CallbackQueryHandler(lyrics_detail, pattern=r"^lyr_\d+$")
+ms_remix_lang_handler = CallbackQueryHandler(ms_remix_pick_language, pattern=r"^remixlang_\d+$")
+ms_remix_gen_handler = CallbackQueryHandler(ms_remix_generate, pattern=r"^remixgen_\d+_.+$")

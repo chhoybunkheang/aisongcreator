@@ -651,3 +651,43 @@ def generate_music(style, topic, mood, lyrics, language="", singer_gender="femal
 
     payload = _build_standard_music_payload(style, mood, lyrics, language, singer_gender=singer_gender)
     return _optimize_mp3_file(_run_piapi_music_task(payload, progress_callback=progress_callback))
+
+
+# -----------------------------------
+# AUDIO-TO-AUDIO REMIX
+# -----------------------------------
+def generate_music_remix(mp3_path, style_prompt, lyrics, language="", singer_gender="female", progress_callback=None):
+    """Re-generate a song in a new language using the original MP3 as style reference (audio2audio)."""
+    import base64 as _b64
+
+    if not mp3_path or not os.path.exists(mp3_path):
+        raise FileNotFoundError(f"Reference MP3 not found: {mp3_path}")
+
+    with open(mp3_path, "rb") as f:
+        style_audio_b64 = _b64.b64encode(f.read()).decode("utf-8")
+
+    normalized_gender = _normalize_singer_gender(singer_gender)
+    vocal_prompt = f"{normalized_gender} singer, {normalized_gender} vocals"
+    lang_part = f"{language} language, sing in {language}, " if language else ""
+    full_style_prompt = f"{lang_part}{vocal_prompt}, {style_prompt}"
+
+    ace_lyrics = _prepare_ace_lyrics(lyrics)
+
+    payload = {
+        "model": DEFAULT_MUSIC_MODEL,
+        "task_type": "audio2audio",
+        "input": {
+            "style_audio": style_audio_b64,
+            "style_prompt": full_style_prompt,
+            "negative_style_prompt": "",
+            "lyrics": ace_lyrics,
+        },
+        "config": {
+            "webhook_config": {
+                "endpoint": "",
+                "secret": "",
+            }
+        },
+    }
+
+    return _optimize_mp3_file(_run_piapi_music_task(payload, progress_callback=progress_callback))

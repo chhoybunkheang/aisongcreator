@@ -892,3 +892,41 @@ def generate_lyrics(style, topic, mood, language, description="", progress_callb
             time.sleep(LYRICS_RETRY_DELAY_SECONDS * attempt)
 
     raise last_error or Exception("Lyrics generation failed")
+
+
+# -----------------------------------
+# TRANSLATE LYRICS
+# -----------------------------------
+def translate_lyrics(lyrics, source_language, target_language, progress_callback=None):
+    if progress_callback:
+        progress_callback(f"⏳ Translating lyrics to {target_language}...")
+
+    prompt = (
+        f"You are a professional songwriter and translator.\n\n"
+        f"Translate and adapt the following song lyrics from {source_language} to {target_language}.\n\n"
+        f"Requirements:\n"
+        f"- Preserve the song structure (verses, chorus, bridge labels)\n"
+        f"- Keep the emotional meaning and feeling intact\n"
+        f"- Make the lyrics sound natural and singable in {target_language}\n"
+        f"- Match the syllable rhythm as closely as possible\n"
+        f"- Output ONLY the translated lyrics, no explanations\n\n"
+        f"Original Lyrics:\n{lyrics}"
+    )
+
+    response = client.chat.completions.create(
+        model="gpt-4.1-mini",
+        messages=[
+            {
+                "role": "system",
+                "content": "You are an expert lyricist and translator who specializes in making song lyrics sound natural and singable across languages.",
+            },
+            {"role": "user", "content": prompt},
+        ],
+        temperature=0.7,
+        max_tokens=800,
+    )
+
+    if progress_callback:
+        progress_callback(f"✅ Lyrics translated to {target_language}")
+
+    return response.choices[0].message.content
