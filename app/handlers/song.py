@@ -598,6 +598,7 @@ def _entry_type_keyboard():
         [InlineKeyboardButton("🎵 New", callback_data="type_new")],
         [InlineKeyboardButton("📝 Library", callback_data="type_mylyrics")],
         [InlineKeyboardButton("📋 Paste Lyric", callback_data="type_paste")],
+        [InlineKeyboardButton("🔄 Remix Language", callback_data="type_remix")],
     ]
     return InlineKeyboardMarkup(rows)
 
@@ -704,6 +705,25 @@ async def choose_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
 
     await _safe_answer(query)
+
+    if query.data == "type_remix":
+        songs = get_user_songs(query.from_user.id)
+        mp3_songs = [s for s in songs if getattr(s, "mp3_path", None)]
+        if not mp3_songs:
+            await query.edit_message_text(
+                "You don't have any MP3 songs yet.\n\nCreate a song first, then use Remix Language."
+            )
+            return ConversationHandler.END
+        keyboard = [
+            [InlineKeyboardButton(str(s.topic or f"Song #{s.id}"), callback_data=f"remixlang_{s.id}")]
+            for s in mp3_songs[:20]
+        ]
+        await query.edit_message_text(
+            "🔄 *Remix Language*\n\nPick a song to remix:",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+        )
+        return ConversationHandler.END
 
     if query.data == "type_new":
         user_data.clear()
