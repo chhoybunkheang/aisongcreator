@@ -900,6 +900,23 @@ def _ffmpeg_binary():
     return None
 
 
+def extract_audio_from_video(video_path: str) -> str:
+    """Extract audio track from a video file and save it as an MP3. Returns the MP3 path."""
+    ffmpeg_path = _ffmpeg_binary()
+    if not ffmpeg_path:
+        raise RuntimeError("ffmpeg is not available for audio extraction")
+
+    mp3_path = str(video_path).rsplit(".", 1)[0] + "_extracted.mp3"
+    result = subprocess.run(
+        [ffmpeg_path, "-y", "-i", str(video_path), "-vn", "-acodec", "mp3", "-q:a", "2", mp3_path],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0 or not os.path.exists(mp3_path):
+        raise RuntimeError(f"Audio extraction failed:\n{result.stderr[-500:]}")
+    return mp3_path
+
+
 def _burn_subtitles_with_ass(input_video_path, output_video_path, subtitle_segments, frame_size):
     ffmpeg_path = _ffmpeg_binary()
     if not ffmpeg_path:

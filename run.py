@@ -106,6 +106,7 @@ def main():
         ms_receive_uploaded_cover,
         ms_remix_audio_handler,
         ms_remix_ext_gen_handler,
+        ms_receive_remix_video,
         ms_remix_gen_handler,
         ms_remix_lang_handler,
         ms_remix_lyrics_handler,
@@ -136,6 +137,10 @@ def main():
 
         if user_data.get("ms_cover_song_id"):
             await ms_receive_uploaded_cover(update, context)
+            return
+
+        if user_data.get("awaiting_remix_upload"):
+            await ms_receive_remix_video(update, context)
             return
 
     async def error_handler(update, context):

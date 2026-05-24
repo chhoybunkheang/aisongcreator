@@ -45,7 +45,7 @@ from app.services.openai_service import (
     transcribe_lyrics_from_mp3,
     translate_lyrics,
 )
-from app.services.video_service import create_music_video
+from app.services.video_service import create_music_video, extract_audio_from_video
 from app.utils.helpers import (
     clear_flow_message_tracking,
     make_progress_notifier,
@@ -1497,8 +1497,45 @@ async def ms_remix_src_up(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+async def _process_remix_ref_mp3(message, context, dest, song_id):
+    """Shared logic after an MP3 (or extracted audio) is ready for remixing."""
+    del context.user_data["awaiting_remix_upload"]
+
+    # "new" mode — transcribe lyrics from the uploaded audio
+    if song_id == "new":
+        progress_message = None
+        progress_task = None
+        progress_stop = None
+        try:
+            progress_message, progress_task, progress_stop = await start_progress_message(
+                context.bot, message.chat_id, "⏳ Transcribing lyrics from your audio..."
+            )
+            notifier = make_progress_notifier(
+                progress_stop, progress_task, progress_message,
+                context.bot, message.chat_id
+            )
+            lyrics = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: transcribe_lyrics_from_mp3(dest, language="", progress_callback=notifier),
+            )
+            await stop_progress_message(progress_task, progress_stop, progress_message, "✅ Lyrics ready!")
+        except Exception as e:
+            await stop_progress_message(progress_task, progress_stop, progress_message, "Transcription failed")
+            await message.reply_text(f"❌ Could not transcribe lyrics: {e}")
+            return
+
+        context.user_data["remix_ext_ref"] = dest
+        context.user_data["remix_ext_lyrics"] = lyrics
+        await _show_remix_ext_language_picker(context.bot, message.chat_id)
+        return
+
+    # Normal mode — ref is tied to a specific song
+    context.user_data[f"remix_ref_{song_id}"] = dest
+    await _show_remix_language_picker(context.bot, message.chat_id, song_id)
+
+
 async def ms_receive_remix_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Receive an uploaded MP3 and show the language picker (or lyrics song picker)."""
+    """Receive an uploaded MP3 and route to remix flow."""
     song_id = context.user_data.get("awaiting_remix_upload")
     if not song_id:
         return
@@ -1526,39 +1563,46 @@ async def ms_receive_remix_audio(update: Update, context: ContextTypes.DEFAULT_T
         await message.reply_text(f"Failed to download the file: {e}")
         return
 
-    del context.user_data["awaiting_remix_upload"]
+    await _process_remix_ref_mp3(message, context, dest, song_id)
 
-    # "new" mode — came from Create Song upload path: transcribe lyrics from uploaded MP3
-    if song_id == "new":
-        progress_message = None
-        progress_task = None
-        progress_stop = None
-        try:
-            progress_message, progress_task, progress_stop = await start_progress_message(
-                context.bot, message.chat_id, "⏳ Transcribing lyrics from your MP3..."
-            )
-            notifier = make_progress_notifier(
-                progress_stop, progress_task, progress_message,
-                context.bot, message.chat_id
-            )
-            lyrics = await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: transcribe_lyrics_from_mp3(dest, language="", progress_callback=notifier),
-            )
-            await stop_progress_message(progress_task, progress_stop, progress_message, "✅ Lyrics ready!")
-        except Exception as e:
-            await stop_progress_message(progress_task, progress_stop, progress_message, "Transcription failed")
-            await message.reply_text(f"❌ Could not transcribe lyrics: {e}")
-            return
 
-        context.user_data["remix_ext_ref"] = dest
-        context.user_data["remix_ext_lyrics"] = lyrics
-        await _show_remix_ext_language_picker(context.bot, message.chat_id)
+async def ms_receive_remix_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Receive an uploaded video, extract its audio, and route to remix flow."""
+    song_id = context.user_data.get("awaiting_remix_upload")
+    if not song_id:
         return
 
-    # Normal mode — song_id is an int: ref is tied to that specific song
-    context.user_data[f"remix_ref_{song_id}"] = dest
-    await _show_remix_language_picker(context.bot, message.chat_id, song_id)
+    message = update.message
+    file_obj = None
+    if message.video:
+        file_obj = message.video
+    elif message.document and message.document.mime_type and message.document.mime_type.startswith("video/"):
+        file_obj = message.document
+
+    if not file_obj:
+        return
+
+    try:
+        tg_file = await file_obj.get_file()
+        upload_dir = os.path.join("temp", "remix_uploads")
+        os.makedirs(upload_dir, exist_ok=True)
+        vid_dest = os.path.join(upload_dir, f"upload_{update.effective_user.id}_{song_id}.mp4")
+        await tg_file.download_to_drive(vid_dest)
+    except Exception as e:
+        await message.reply_text(f"Failed to download the video: {e}")
+        return
+
+    try:
+        status_msg = await message.reply_text("🎬 Extracting audio from video…")
+        mp3_dest = await asyncio.get_event_loop().run_in_executor(
+            None, lambda: extract_audio_from_video(vid_dest)
+        )
+        await status_msg.delete()
+    except Exception as e:
+        await message.reply_text(f"❌ Could not extract audio from video: {e}")
+        return
+
+    await _process_remix_ref_mp3(message, context, mp3_dest, song_id)
 
 
 async def ms_remix_self(update: Update, context: ContextTypes.DEFAULT_TYPE):
