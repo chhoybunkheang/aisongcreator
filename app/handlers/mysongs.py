@@ -51,10 +51,8 @@ from app.utils.helpers import (
     make_progress_notifier,
     replace_flow_message,
     retry_telegram_call,
-    send_audio_with_status,
-    send_photo_with_status,
+    send_audio_with_status,    send_photo_with_status,
     send_video_with_status,
-    start_progress_message,
     start_timed_progress_message,
     stop_progress_message,
 )
@@ -1503,24 +1501,23 @@ async def _process_remix_ref_mp3(message, context, dest, song_id):
 
     # "new" mode — transcribe lyrics from the uploaded audio
     if song_id == "new":
-        progress_message = None
-        progress_task = None
-        progress_stop = None
+        prog_msg = await message.reply_text("⏳ Transcribing lyrics from your audio...\nPreparing request...")
+        progress_task, progress_stop = await start_timed_progress_message(
+            prog_msg,
+            "⏳ Transcribing lyrics from your audio...",
+            start_percent=1,
+            max_percent=95,
+            total_seconds=60,
+        )
         try:
-            progress_message, progress_task, progress_stop = await start_progress_message(
-                context.bot, message.chat_id, "⏳ Transcribing lyrics from your audio..."
-            )
-            notifier = make_progress_notifier(
-                progress_stop, progress_task, progress_message,
-                context.bot, message.chat_id
-            )
+            notifier = make_progress_notifier(asyncio.get_running_loop(), prog_msg)
             lyrics = await asyncio.get_event_loop().run_in_executor(
                 None,
                 lambda: transcribe_lyrics_from_mp3(dest, language="", progress_callback=notifier),
             )
-            await stop_progress_message(progress_task, progress_stop, progress_message, "✅ Lyrics ready!")
+            await stop_progress_message(progress_task, progress_stop, prog_msg, "✅ Lyrics ready!")
         except Exception as e:
-            await stop_progress_message(progress_task, progress_stop, progress_message, "Transcription failed")
+            await stop_progress_message(progress_task, progress_stop, prog_msg, "❌ Transcription failed")
             await message.reply_text(f"❌ Could not transcribe lyrics: {e}")
             return
 
@@ -1695,18 +1692,16 @@ async def ms_remix_ext_generate(update: Update, context: ContextTypes.DEFAULT_TY
         )
         return
 
-    progress_message = None
-    progress_task = None
-    progress_stop = None
-
+    await query.edit_message_text("⏳ Remixing song...\nPreparing request...")
+    progress_task, progress_stop = await start_timed_progress_message(
+        query.message,
+        "⏳ Remixing song...",
+        start_percent=1,
+        max_percent=95,
+        total_seconds=MP3_QUEUE_SECONDS,
+    )
     try:
-        progress_message, progress_task, progress_stop = await start_progress_message(
-            context.bot, query.message.chat_id, "⏳ Remixing song..."
-        )
-        notifier = make_progress_notifier(
-            progress_stop, progress_task, progress_message,
-            context.bot, query.message.chat_id
-        )
+        notifier = make_progress_notifier(asyncio.get_running_loop(), query.message)
 
         # Translate transcribed lyrics to target language
         translated_lyrics = await asyncio.get_event_loop().run_in_executor(
@@ -1730,7 +1725,7 @@ async def ms_remix_ext_generate(update: Update, context: ContextTypes.DEFAULT_TY
             ),
         )
 
-        await stop_progress_message(progress_task, progress_stop, progress_message, "✅ Remix complete!")
+        await stop_progress_message(progress_task, progress_stop, query.message, "✅ Remix complete!")
 
         # Save new song entry
         user = get_user(query.from_user.id)
@@ -1759,9 +1754,7 @@ async def ms_remix_ext_generate(update: Update, context: ContextTypes.DEFAULT_TY
 
     except Exception as e:
         refund_credit(query.from_user.id)
-        await stop_progress_message(
-            progress_task, progress_stop, progress_message, "Remix failed"
-        )
+        await stop_progress_message(progress_task, progress_stop, query.message, "Remix failed")
         error_msg = f"❌ Remix failed:\n{str(e)}"
         if len(error_msg) > 4096:
             error_msg = error_msg[:4090] + "..."
@@ -1794,21 +1787,25 @@ async def ms_remix_generate(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    progress_message = None
-    progress_task = None
-    progress_stop = None
-
+    await query.edit_message_text("⏳ Remixing song...\nPreparing request...")
+    progress_task, progress_stop = await start_timed_progress_message(
+        query.message,
+        "⏳ Remixing song...",
+        start_percent=1,
+        max_percent=95,
+        total_seconds=MP3_QUEUE_SECONDS,
+    )
     try:
-        progress_message, progress_task, progress_stop = await start_progress_message(
-            context.bot, query.message.chat_id, "⏳ Remixing song..."
-        )
-        notifier = make_progress_notifier(progress_stop, progress_task, progress_message, context.bot, query.message.chat_id)
+        notifier = make_progress_notifier(asyncio.get_running_loop(), query.message)
 
         # Step 1 — translate lyrics
         source_language = song.language or "English"
-        translated_lyrics = translate_lyrics(
-            song.lyrics, source_language, target_language,
-            progress_callback=notifier
+        translated_lyrics = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: translate_lyrics(
+                song.lyrics, source_language, target_language,
+                progress_callback=notifier,
+            ),
         )
 
         # Step 2 — audio2audio generation
@@ -1825,7 +1822,7 @@ async def ms_remix_generate(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ),
         )
 
-        await stop_progress_message(progress_task, progress_stop, progress_message, "✅ Remix complete!")
+        await stop_progress_message(progress_task, progress_stop, query.message, "✅ Remix complete!")
 
         # Save new song entry
         user = get_user(query.from_user.id)
@@ -1853,9 +1850,7 @@ async def ms_remix_generate(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         refund_credit(query.from_user.id)
-        await stop_progress_message(
-            progress_task, progress_stop, progress_message, "Remix failed"
-        )
+        await stop_progress_message(progress_task, progress_stop, query.message, "Remix failed")
         error_msg = f"❌ Remix failed:\n{str(e)}"
         if len(error_msg) > 4096:
             error_msg = error_msg[:4090] + "..."
