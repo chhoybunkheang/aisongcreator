@@ -1500,6 +1500,7 @@ def _is_youtube_url(text: str) -> bool:
 def _download_yt_audio(url: str, dest_base: str) -> str:
     """Download audio from a YouTube URL and save as MP3. Returns the mp3 path."""
     import yt_dlp  # lazy import — only needed for this feature
+    from imageio_ffmpeg import get_ffmpeg_exe
 
     ydl_opts = {
         "format": "bestaudio/best",
@@ -1509,6 +1510,7 @@ def _download_yt_audio(url: str, dest_base: str) -> str:
             "preferredcodec": "mp3",
             "preferredquality": "128",
         }],
+        "ffmpeg_location": get_ffmpeg_exe(),
         "quiet": True,
         "no_warnings": True,
         "noprogress": True,
