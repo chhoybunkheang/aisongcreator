@@ -260,7 +260,7 @@ def _download_audio_file(audio_url, file_stem, progress_callback=None):
     return mp3_path
 
 
-def _run_piapi_music_task(payload, progress_callback=None):
+def _run_piapi_music_task(payload, progress_callback=None, poll_interval=10):
     if not API_KEY:
         raise Exception("SUNO_API_KEY missing. Set it in your environment before generating MP3.")
 
@@ -428,7 +428,7 @@ def _run_piapi_music_task(payload, progress_callback=None):
             print("[INFO] Still generating...")
 
         attempt += 1
-        time.sleep(10)
+        time.sleep(poll_interval)
 
     raise Exception("Music generation timed out")
 
@@ -690,4 +690,4 @@ def generate_music_remix(mp3_path, style_prompt, lyrics, language="", singer_gen
         },
     }
 
-    return _optimize_mp3_file(_run_piapi_music_task(payload, progress_callback=progress_callback))
+    return _optimize_mp3_file(_run_piapi_music_task(payload, progress_callback=progress_callback, poll_interval=5))
