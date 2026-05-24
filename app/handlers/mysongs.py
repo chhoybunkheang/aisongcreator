@@ -1431,11 +1431,14 @@ async def ms_remix_pick_language(update: Update, context: ContextTypes.DEFAULT_T
     markup = InlineKeyboardMarkup([
         [
             InlineKeyboardButton("📚 From My Library", callback_data=f"remsrc_lib_{song_id}"),
-            InlineKeyboardButton("📤 Upload MP3", callback_data=f"remsrc_up_{song_id}"),
-        ]
+        ],
+        [
+            InlineKeyboardButton("📤 Upload MP3/Video", callback_data=f"remsrc_up_{song_id}"),
+            InlineKeyboardButton("🔗 YouTube Link", callback_data=f"remsrc_yt_{song_id}"),
+        ],
     ])
     await query.message.reply_text(
-        "🔄 *Remix in Another Language*\n\nChoose the style reference MP3:",
+        "🔄 *Remix in Another Language*\n\nChoose the style reference source:",
         parse_mode="Markdown",
         reply_markup=markup,
     )
@@ -1516,16 +1519,29 @@ def _download_yt_audio(url: str, dest_base: str) -> str:
 
 
 async def ms_remix_src_up(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """User chose to upload an MP3 — set awaiting state and prompt."""
+    """User chose to upload an MP3/video — set awaiting state and prompt."""
     query = update.callback_query
     await query.answer()
     song_id = int(query.data.split("_")[2])
 
     context.user_data["awaiting_remix_upload"] = song_id
     await query.message.reply_text(
-        "📤 Please send your reference audio:\n\n"
-        "• Send an MP3 file (as Document or audio)\n"
-        "• Or paste a YouTube link 🔗",
+        "📤 Please send your MP3 file or video now.\n\n"
+        "_Send it as a file (Document), audio message, or video._",
+        parse_mode="Markdown",
+    )
+
+
+async def ms_remix_src_yt(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """User chose YouTube link — set awaiting state and prompt for URL."""
+    query = update.callback_query
+    await query.answer()
+    song_id = int(query.data.split("_")[2])
+
+    context.user_data["awaiting_remix_upload"] = song_id
+    await query.message.reply_text(
+        "🔗 Please paste a YouTube link:\n\n"
+        "_e.g. https://youtu.be/abc123_",
         parse_mode="Markdown",
     )
 
@@ -1947,6 +1963,7 @@ ms_remix_lang_handler = CallbackQueryHandler(ms_remix_pick_language, pattern=r"^
 ms_remix_src_lib_handler = CallbackQueryHandler(ms_remix_src_lib, pattern=r"^remsrc_lib_\d+$")
 ms_remix_src_sel_handler = CallbackQueryHandler(ms_remix_src_sel, pattern=r"^remsrc_sel_\d+_\d+$")
 ms_remix_src_up_handler = CallbackQueryHandler(ms_remix_src_up, pattern=r"^remsrc_up_\d+$")
+ms_remix_src_yt_handler = CallbackQueryHandler(ms_remix_src_yt, pattern=r"^remsrc_yt_\d+$")
 ms_remix_audio_handler = MessageHandler(filters.AUDIO | filters.Document.MimeType("audio/mpeg"), ms_receive_remix_audio)
 ms_remix_url_handler = MessageHandler(filters.TEXT & ~filters.COMMAND, ms_receive_remix_url)
 ms_remix_self_handler = CallbackQueryHandler(ms_remix_self, pattern=r"^remixself_\d+$")
