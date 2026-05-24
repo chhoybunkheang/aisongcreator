@@ -495,6 +495,12 @@ def _friendly_mp3_error_message(error):
     error_text = str(error or "").strip()
     lowered = error_text.lower()
 
+    if any(token in lowered for token in ("khmer singing validation failed", "khmer music is not available right now", "khmer vocals are unavailable")):
+        return (
+            "❌ Khmer music is not available right now.\n\n"
+            "We don't deduct your credit. Please try again later."
+        )
+
     if any(token in lowered for token in ("502", "503", "504", "bad gateway", "music api server error", "polling error")):
         return (
             "❌ Could not generate the MP3 right now.\n\n"

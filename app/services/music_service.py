@@ -647,10 +647,7 @@ def generate_music(style, topic, mood, lyrics, language="", singer_gender="femal
         try:
             return _generate_khmer_instrumental_fallback(style, mood, progress_callback=progress_callback)
         except Exception as instrumental_error:
-            raise Exception(
-                "Khmer singing validation failed: provider returned non-Khmer vocals after multiple retries, "
-                "and the instrumental fallback also failed. Please try again later or switch provider/model."
-            ) from instrumental_error
+            raise Exception("Khmer music is not available right now.") from instrumental_error
 
     payload = _build_standard_music_payload(style, mood, lyrics, language, singer_gender=singer_gender)
     return _optimize_mp3_file(_run_piapi_music_task(payload, progress_callback=progress_callback))
