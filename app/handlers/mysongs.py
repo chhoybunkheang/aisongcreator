@@ -1597,6 +1597,13 @@ async def ms_receive_remix_url(update: Update, context: ContextTypes.DEFAULT_TYP
 
     message = update.message
     status_msg = await message.reply_text("⬇️ Downloading audio from YouTube…")
+    progress_task, progress_stop = await start_timed_progress_message(
+        status_msg,
+        "⬇️ Downloading audio from YouTube…",
+        start_percent=1,
+        max_percent=90,
+        total_seconds=40,
+    )
     try:
         upload_dir = os.path.join("temp", "remix_uploads")
         os.makedirs(upload_dir, exist_ok=True)
@@ -1604,9 +1611,10 @@ async def ms_receive_remix_url(update: Update, context: ContextTypes.DEFAULT_TYP
         dest = await asyncio.get_event_loop().run_in_executor(
             None, lambda: _download_yt_audio(text, dest_base)
         )
-        await status_msg.delete()
+        await stop_progress_message(progress_task, progress_stop, status_msg, "✅ Audio downloaded!")
     except Exception as e:
-        await status_msg.edit_text(f"❌ Failed to download from YouTube: {e}")
+        await stop_progress_message(progress_task, progress_stop, status_msg, "❌ Download failed")
+        await message.reply_text(f"❌ Failed to download from YouTube: {e}")
         return
 
     await _process_remix_ref_mp3(message, context, dest, song_id)
