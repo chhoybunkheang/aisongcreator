@@ -1511,7 +1511,7 @@ def _download_yt_audio(url: str, dest_base: str) -> str:
             "preferredquality": "128",
         }],
         "ffmpeg_location": get_ffmpeg_exe(),
-        "extractor_args": {"youtube": {"player_client": ["ios", "android"]}},
+        "extractor_args": {"youtube": {"player_client": ["tv_embedded", "web_embedded"]}},
         "socket_timeout": 60,
         "retries": 5,
         "fragment_retries": 5,
