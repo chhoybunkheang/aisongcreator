@@ -1511,6 +1511,7 @@ def _download_yt_audio(url: str, dest_base: str) -> str:
             "preferredquality": "128",
         }],
         "ffmpeg_location": get_ffmpeg_exe(),
+        "extractor_args": {"youtube": {"player_client": ["ios"]}},
         "quiet": True,
         "no_warnings": True,
         "noprogress": True,
