@@ -51,7 +51,8 @@ from app.utils.helpers import (
     make_progress_notifier,
     replace_flow_message,
     retry_telegram_call,
-    send_audio_with_status,    send_photo_with_status,
+    send_audio_with_status,
+    send_photo_with_status,
     send_video_with_status,
     start_timed_progress_message,
     stop_progress_message,
@@ -62,6 +63,7 @@ COVER_QUEUE_SECONDS = 40
 VIDEO_QUEUE_SECONDS = 120
 VIDEO_WITH_SUBTITLES_QUEUE_SECONDS = 120
 MP3_TO_LYRICS_QUEUE_SECONDS = 60
+REMIX_QUEUE_SECONDS = 120
 
 
 async def _safe_answer(query):
@@ -1698,7 +1700,7 @@ async def ms_remix_ext_generate(update: Update, context: ContextTypes.DEFAULT_TY
         "⏳ Remixing song...",
         start_percent=1,
         max_percent=95,
-        total_seconds=MP3_QUEUE_SECONDS,
+        total_seconds=REMIX_QUEUE_SECONDS,
     )
     try:
         notifier = make_progress_notifier(asyncio.get_running_loop(), query.message)
@@ -1793,7 +1795,7 @@ async def ms_remix_generate(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "⏳ Remixing song...",
         start_percent=1,
         max_percent=95,
-        total_seconds=MP3_QUEUE_SECONDS,
+        total_seconds=REMIX_QUEUE_SECONDS,
     )
     try:
         notifier = make_progress_notifier(asyncio.get_running_loop(), query.message)
