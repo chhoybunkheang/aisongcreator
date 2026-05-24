@@ -1503,7 +1503,7 @@ def _download_yt_audio(url: str, dest_base: str) -> str:
     from imageio_ffmpeg import get_ffmpeg_exe
 
     ydl_opts = {
-        "format": "bestaudio/best",
+        "format": "bestaudio[ext=m4a]/bestaudio/best",
         "outtmpl": dest_base + ".%(ext)s",
         "postprocessors": [{
             "key": "FFmpegExtractAudio",
@@ -1511,7 +1511,7 @@ def _download_yt_audio(url: str, dest_base: str) -> str:
             "preferredquality": "128",
         }],
         "ffmpeg_location": get_ffmpeg_exe(),
-        "extractor_args": {"youtube": {"player_client": ["ios"]}},
+        "extractor_args": {"youtube": {"player_client": ["ios", "android"]}},
         "quiet": True,
         "no_warnings": True,
         "noprogress": True,
