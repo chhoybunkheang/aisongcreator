@@ -1528,28 +1528,32 @@ async def ms_receive_remix_audio(update: Update, context: ContextTypes.DEFAULT_T
 
     del context.user_data["awaiting_remix_upload"]
 
-    # "new" mode — came from Create Song upload path: need to pick lyrics song next
+    # "new" mode — came from Create Song upload path: transcribe lyrics from uploaded MP3
     if song_id == "new":
-        context.user_data["remix_uploaded_ref"] = dest
-        songs = get_user_songs(update.effective_user.id)
-        lyrics_songs = [s for s in songs if getattr(s, "lyrics", None)]
-        if not lyrics_songs:
-            await message.reply_text(
-                "You don't have any saved songs with lyrics yet. Create a song first."
+        progress_message = None
+        progress_task = None
+        progress_stop = None
+        try:
+            progress_message, progress_task, progress_stop = await start_progress_message(
+                context.bot, message.chat_id, "⏳ Transcribing lyrics from your MP3..."
             )
+            notifier = make_progress_notifier(
+                progress_stop, progress_task, progress_message,
+                context.bot, message.chat_id
+            )
+            lyrics = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: transcribe_lyrics_from_mp3(dest, language="", progress_callback=notifier),
+            )
+            await stop_progress_message(progress_task, progress_stop, progress_message, "✅ Lyrics ready!")
+        except Exception as e:
+            await stop_progress_message(progress_task, progress_stop, progress_message, "Transcription failed")
+            await message.reply_text(f"❌ Could not transcribe lyrics: {e}")
             return
-        buttons = [
-            [InlineKeyboardButton(
-                str(s.topic or f"Song #{s.id}"),
-                callback_data=f"remixlyrics_{s.id}"
-            )]
-            for s in lyrics_songs[:20]
-        ]
-        await message.reply_text(
-            "🎵 *Pick a song to use its lyrics:*",
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(buttons),
-        )
+
+        context.user_data["remix_ext_ref"] = dest
+        context.user_data["remix_ext_lyrics"] = lyrics
+        await _show_remix_ext_language_picker(context.bot, message.chat_id)
         return
 
     # Normal mode — song_id is an int: ref is tied to that specific song
@@ -1585,6 +1589,117 @@ async def ms_remix_lyrics_pick(update: Update, context: ContextTypes.DEFAULT_TYP
 
     context.user_data[f"remix_ref_{song_id}"] = uploaded_ref
     await _show_remix_language_picker(context.bot, query.message.chat_id, song_id)
+
+
+async def _show_remix_ext_language_picker(bot, chat_id):
+    """Language picker for external-upload remix (no song_id — uses remixextgen_ callbacks)."""
+    languages = get_enabled_song_languages()
+    buttons = []
+    for i in range(0, len(languages), 2):
+        row = [InlineKeyboardButton(languages[i], callback_data=f"remixextgen_{languages[i]}")]
+        if i + 1 < len(languages):
+            row.append(InlineKeyboardButton(languages[i + 1], callback_data=f"remixextgen_{languages[i + 1]}"))
+        buttons.append(row)
+    await bot.send_message(
+        chat_id=chat_id,
+        text="🌍 *Choose the target language for the remix:*",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(buttons),
+    )
+
+
+async def ms_remix_ext_generate(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Generate remix for an externally uploaded MP3 whose lyrics were auto-transcribed."""
+    query = update.callback_query
+    await query.answer()
+
+    target_language = query.data[len("remixextgen_"):]  # remixextgen_{language}
+
+    ref_mp3 = context.user_data.get("remix_ext_ref")
+    source_lyrics = context.user_data.get("remix_ext_lyrics")
+
+    if not ref_mp3 or not os.path.exists(ref_mp3) or not source_lyrics:
+        await query.message.reply_text("Session data lost. Please upload the MP3 again.")
+        return
+
+    credit_reserved = deduct_credit(query.from_user.id)
+    if not credit_reserved:
+        await query.message.reply_text(
+            "❌ Not enough credits to remix.\nUse /buycredits to purchase more."
+        )
+        return
+
+    progress_message = None
+    progress_task = None
+    progress_stop = None
+
+    try:
+        progress_message, progress_task, progress_stop = await start_progress_message(
+            context.bot, query.message.chat_id, "⏳ Remixing song..."
+        )
+        notifier = make_progress_notifier(
+            progress_stop, progress_task, progress_message,
+            context.bot, query.message.chat_id
+        )
+
+        # Translate transcribed lyrics to target language
+        translated_lyrics = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: translate_lyrics(
+                source_lyrics, "auto", target_language,
+                progress_callback=notifier,
+            ),
+        )
+
+        # audio2audio generation
+        mp3_path = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: generate_music_remix(
+                ref_mp3,
+                "",
+                translated_lyrics,
+                language=target_language,
+                singer_gender="female",
+                progress_callback=notifier,
+            ),
+        )
+
+        await stop_progress_message(progress_task, progress_stop, progress_message, "✅ Remix complete!")
+
+        # Save new song entry
+        user = get_user(query.from_user.id)
+        new_song = save_song(
+            telegram_id=query.from_user.id,
+            style="",
+            topic="Remix",
+            mood="",
+            description="",
+            language=target_language,
+            lyrics=translated_lyrics,
+        )
+        if new_song:
+            update_song_mp3(new_song.id, mp3_path)
+
+        context.user_data.pop("remix_ext_ref", None)
+        context.user_data.pop("remix_ext_lyrics", None)
+
+        await context.bot.send_audio(
+            chat_id=query.message.chat_id,
+            audio=open(mp3_path, "rb"),
+            title=f"Remix ({target_language})",
+            caption=f"🔄 Remix in *{target_language}*\n\n💎 Remaining Credits: {user.credits if user else '?'}",
+            parse_mode="Markdown",
+        )
+
+    except Exception as e:
+        refund_credit(query.from_user.id)
+        await stop_progress_message(
+            progress_task, progress_stop, progress_message, "Remix failed"
+        )
+        error_msg = f"❌ Remix failed:\n{str(e)}"
+        if len(error_msg) > 4096:
+            error_msg = error_msg[:4090] + "..."
+        await context.bot.send_message(chat_id=query.message.chat_id, text=error_msg)
 
 
 async def ms_remix_generate(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1713,3 +1828,4 @@ ms_remix_audio_handler = MessageHandler(filters.AUDIO | filters.Document.MimeTyp
 ms_remix_self_handler = CallbackQueryHandler(ms_remix_self, pattern=r"^remixself_\d+$")
 ms_remix_lyrics_handler = CallbackQueryHandler(ms_remix_lyrics_pick, pattern=r"^remixlyrics_\d+$")
 ms_remix_gen_handler = CallbackQueryHandler(ms_remix_generate, pattern=r"^remixgen_\d+_.+$")
+ms_remix_ext_gen_handler = CallbackQueryHandler(ms_remix_ext_generate, pattern=r"^remixextgen_.+$")
