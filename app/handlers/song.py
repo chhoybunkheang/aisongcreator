@@ -598,7 +598,6 @@ def _entry_type_keyboard():
         [InlineKeyboardButton("🎵 New", callback_data="type_new")],
         [InlineKeyboardButton("📝 Library", callback_data="type_mylyrics")],
         [InlineKeyboardButton("📋 Paste Lyric", callback_data="type_paste")],
-        [InlineKeyboardButton("🔄 Remix Language", callback_data="type_remix")],
     ]
     return InlineKeyboardMarkup(rows)
 
@@ -705,71 +704,6 @@ async def choose_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
 
     await _safe_answer(query)
-
-    if query.data == "type_remix":
-        markup = InlineKeyboardMarkup([
-            [
-                InlineKeyboardButton("📚 From My Library", callback_data="type_remixlib"),
-            ],
-            [
-                InlineKeyboardButton("📤 Upload MP3/Video", callback_data="type_remixup"),
-                InlineKeyboardButton("🔗 YouTube Link", callback_data="type_remixyt"),
-            ],
-            [
-                InlineKeyboardButton("📋 Paste Lyrics", callback_data="type_remixpaste"),
-            ],
-        ])
-        await query.edit_message_text(
-            "🔄 *Remix Language*\n\nChoose the style reference source:",
-            parse_mode="Markdown",
-            reply_markup=markup,
-        )
-        return CHOOSE_TYPE
-
-    if query.data == "type_remixlib":
-        songs = get_user_songs(query.from_user.id)
-        mp3_songs = [s for s in songs if getattr(s, "mp3_path", None) and getattr(s, "lyrics", None)]
-        if not mp3_songs:
-            await query.edit_message_text(
-                "You don't have any MP3 songs with lyrics yet.\n\nCreate a song first, then use Remix Language."
-            )
-            return ConversationHandler.END
-        keyboard = [
-            [InlineKeyboardButton(str(s.topic or f"Song #{s.id}"), callback_data=f"remixself_{s.id}")]
-            for s in mp3_songs[:20]
-        ]
-        await query.edit_message_text(
-            "📚 *Pick a song to remix:*",
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(keyboard),
-        )
-        return ConversationHandler.END
-
-    if query.data == "type_remixup":
-        context.user_data["awaiting_remix_upload"] = "new"
-        await query.edit_message_text(
-            "📤 Please send your MP3 file or video now.\n\n"
-            "_Send it as a file (Document), audio message, or video._",
-            parse_mode="Markdown",
-        )
-        return ConversationHandler.END
-
-    if query.data == "type_remixyt":
-        context.user_data["awaiting_remix_upload"] = "new"
-        await query.edit_message_text(
-            "🔗 Please paste a YouTube link:\n\n"
-            "_e.g. https://youtu.be/abc123_",
-            parse_mode="Markdown",
-        )
-        return ConversationHandler.END
-
-    if query.data == "type_remixpaste":
-        context.user_data.pop("awaiting_remix_upload", None)
-        context.user_data.pop("remix_ext_ref", None)
-        context.user_data.pop("remix_ext_lyrics", None)
-        context.user_data["awaiting_remix_lyrics"] = True
-        await query.edit_message_text("📋 Please paste the lyrics you want to remix:")
-        return ConversationHandler.END
 
     if query.data == "type_new":
         user_data.clear()

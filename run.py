@@ -103,23 +103,7 @@ def main():
         ms_cov_upload_handler,
         ms_cov_use_handler,
         ms_mp3_handler,
-        ms_receive_remix_video,
         ms_receive_uploaded_cover,
-        ms_remix_audio_handler,
-        ms_remix_ext_gen_handler,
-        ms_remix_gen_handler,
-        ms_remix_lang_handler,
-        ms_remix_lyrics_handler,
-        ms_remix_paste_src_lib_handler,
-        ms_remix_paste_src_sel_handler,
-        ms_remix_paste_src_up_handler,
-        ms_remix_paste_src_yt_handler,
-        ms_remix_self_handler,
-        ms_remix_src_lib_handler,
-        ms_remix_src_sel_handler,
-        ms_remix_src_up_handler,
-        ms_remix_src_yt_handler,
-        ms_remix_url_handler,
         ms_skip_handler,
         ms_vid_choice_handler,
         ms_vid_handler,
@@ -143,10 +127,6 @@ def main():
 
         if user_data.get("ms_cover_song_id"):
             await ms_receive_uploaded_cover(update, context)
-            return
-
-        if user_data.get("awaiting_remix_upload"):
-            await ms_receive_remix_video(update, context)
             return
 
     async def error_handler(update, context):
@@ -208,21 +188,6 @@ def main():
     app.add_handler(play_mp3_handler)
     app.add_handler(watch_video_handler)
     app.add_handler(add_subtitle_handler)
-    app.add_handler(ms_remix_lang_handler)
-    app.add_handler(ms_remix_src_lib_handler)
-    app.add_handler(ms_remix_src_sel_handler)
-    app.add_handler(ms_remix_src_up_handler)
-    app.add_handler(ms_remix_src_yt_handler)
-    app.add_handler(ms_remix_paste_src_lib_handler)
-    app.add_handler(ms_remix_paste_src_sel_handler)
-    app.add_handler(ms_remix_paste_src_up_handler)
-    app.add_handler(ms_remix_paste_src_yt_handler)
-    app.add_handler(ms_remix_audio_handler)
-    app.add_handler(ms_remix_url_handler)
-    app.add_handler(ms_remix_self_handler)
-    app.add_handler(ms_remix_lyrics_handler)
-    app.add_handler(ms_remix_gen_handler)
-    app.add_handler(ms_remix_ext_gen_handler)
     app.add_handler(buycredits_handler)
     from app.handlers.help import settings_text_handler
     app.add_handler(settings_text_handler)
