@@ -807,8 +807,13 @@ _STYLE_PROFILES = {
     },
     "khmer remix": {
         "structure": "[Intro]\n[Verse 1]\n[Chorus]\n[Verse 2]\n[Chorus]\n[Drop]\n[Final Chorus]",
-        "tone": "energetic, modern Khmer youth culture, TikTok-ready, danceable",
-        "rhyme": "AABB, short punchy lines, chorus must be ultra-catchy",
+        "tone": "energetic, modern Khmer youth street culture, TikTok-ready, danceable, mix of emotion and hype",
+        "rhyme": "Lines end on matching vowel sounds (not English consonant rhymes). Each line 6-8 syllables. Chorus repeatable in one breath.",
+    },
+    "khmer": {
+        "structure": "[Verse 1]\n[Chorus]\n[Verse 2]\n[Chorus]\n[Bridge]\n[Final Chorus]",
+        "tone": "heartfelt, smooth, natural-sounding Khmer everyday speech rhythm, emotionally direct",
+        "rhyme": "Lines end on matching vowel sounds (e.g. ា រ ។ patterns). Lines 2 and 4 of each verse rhyme. 6-8 syllables per line.",
     },
     "tiktok remix": {
         "structure": "[Hook]\n[Verse 1]\n[Hook]\n[Verse 2]\n[Hook]\n[Outro]",
@@ -823,6 +828,22 @@ _DEFAULT_PROFILE = {
     "rhyme": "ABAB verse, AABB chorus",
 }
 
+# Language-specific rules injected when language matches, regardless of style.
+_LANGUAGE_INSTRUCTIONS = {
+    "khmer": (
+        "KHMER LANGUAGE RULES (mandatory):\n"
+        "- Write ALL lyrics in Khmer Unicode script (ខ្មែរ). Do NOT use Roman transliteration.\n"
+        "- Each line must have 6 to 8 syllables for natural singability.\n"
+        "- Rhyme is based on matching final VOWEL SOUNDS (e.g. ា, ិ, ុ, ើ endings), NOT on English-style end-consonant rhymes.\n"
+        "- Lines 2 and 4 of every verse must share the same final vowel sound.\n"
+        "- Use everyday conversational Khmer vocabulary — the kind spoken by young people in Phnom Penh, not formal or literary Khmer.\n"
+        "- Ground the story in recognizable Khmer life: rainy season, riverside, street food, family home, province roads, phone calls late at night, waiting at a bus station.\n"
+        "- Do NOT literally translate English idioms. Use Khmer equivalents or imagery that feels natural to a Khmer speaker.\n"
+        "- Avoid overusing loan words from French or English (unless the style is Khmer Remix, where 1-2 hook words in English is acceptable).\n"
+        "- The chorus must feel like something a Cambodian listener would naturally hum or sing along to."
+    ),
+}
+
 
 def _get_style_profile(style: str) -> dict:
     key = (style or "").strip().lower()
@@ -832,13 +853,33 @@ def _get_style_profile(style: str) -> dict:
     return _DEFAULT_PROFILE
 
 
+def _get_language_instructions(language: str) -> str:
+    key = (language or "").strip().lower()
+    for lang_key, instructions in _LANGUAGE_INSTRUCTIONS.items():
+        if lang_key in key:
+            return instructions
+    return ""
+
+
 def _generate_song_brief(style, topic, mood, language, description, progress_callback):
     """Phase 1: generate a focused creative brief before writing lyrics."""
     description_line = f'\nUser\'s specific situation: "{description}"' if description else ""
+    lang_lower = (language or "").strip().lower()
+
+    # For Khmer, instruct the brief to use Khmer cultural context
+    if "khmer" in lang_lower:
+        culture_note = (
+            "\nIMPORTANT: The song is in Khmer (Cambodian). "
+            "The story, imagery, and hook phrase must be rooted in Cambodian everyday life — "
+            "real places, feelings, and situations that resonate with a young Cambodian listener. "
+            "The hook phrase should be in natural spoken Khmer (write it in Khmer script)."
+        )
+    else:
+        culture_note = ""
 
     brief_prompt = (
         f"You are a creative director briefing a songwriter for a {style} song in {language}.\n"
-        f"Topic: {topic}. Mood: {mood}.{description_line}\n\n"
+        f"Topic: {topic}. Mood: {mood}.{description_line}{culture_note}\n\n"
         f"In exactly 4 short points, define:\n"
         f"1. The SPECIFIC story or situation the song is about (concrete, not abstract — name a real moment, place, or detail)\n"
         f"2. The central IMAGE or METAPHOR that will run through every section\n"
@@ -857,7 +898,7 @@ def _generate_song_brief(style, topic, mood, language, description, progress_cal
             {"role": "user", "content": brief_prompt},
         ],
         temperature=0.85,
-        max_tokens=220,
+        max_tokens=250,
     )
     return response.choices[0].message.content.strip()
 
@@ -866,6 +907,7 @@ def generate_lyrics(style, topic, mood, language, description="", progress_callb
 
     description = str(description or "").strip()
     profile = _get_style_profile(style)
+    language_instructions = _get_language_instructions(language)
 
     last_error = None
 
@@ -914,6 +956,7 @@ SONGWRITING ORDER — follow this to build maximum impact:
 STRUCTURE TO OUTPUT:
 {profile["structure"]}
 
+{language_instructions}
 HARD RULES:
 - ALL lyrics must be in {language} only. Zero mixing of other languages.
 - Section headers stay in English: [Verse 1], [Chorus], etc.
@@ -932,21 +975,30 @@ HARD RULES:
                 else:
                     progress_callback(f"⏳ Generating lyrics...\nRetrying ({attempt}/{LYRICS_RETRY_ATTEMPTS})...")
 
+            lang_lower = (language or "").strip().lower()
+            system_msg = (
+                "You are an award-winning songwriter. "
+                "You write specific, vivid, emotionally authentic lyrics. "
+                "You never use clichés. Every line earns its place."
+            )
+            if "khmer" in lang_lower:
+                system_msg = (
+                    "You are an award-winning Khmer songwriter based in Phnom Penh. "
+                    "You have written hit songs for Cambodian artists for 15 years. "
+                    "You write in natural, flowing Khmer script (ខ្មែរ) that sounds smooth when sung — "
+                    "never stilted, never like a translation. "
+                    "You understand Khmer vowel-based rhyme, 6-8 syllable line rhythm, "
+                    "and what imagery resonates deeply with Cambodian listeners."
+                )
+
             response = client.chat.completions.create(
                 model="gpt-4.1",
                 messages=[
-                    {
-                        "role": "system",
-                        "content": (
-                            "You are an award-winning songwriter. "
-                            "You write specific, vivid, emotionally authentic lyrics. "
-                            "You never use clichés. Every line earns its place."
-                        ),
-                    },
+                    {"role": "system", "content": system_msg},
                     {"role": "user", "content": prompt},
                 ],
                 temperature=0.92,
-                max_tokens=1000,
+                max_tokens=1100,
             )
             if progress_callback:
                 progress_callback("✅ Lyrics generated 100%")
