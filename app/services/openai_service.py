@@ -1168,7 +1168,7 @@ HARD RULES:
                 )
 
             response = client.chat.completions.create(
-                model="gpt-4.1",
+                model="gpt-5.5",
                 messages=[
                     {"role": "system", "content": system_msg},
                     {"role": "user", "content": prompt},
