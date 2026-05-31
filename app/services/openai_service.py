@@ -1174,7 +1174,7 @@ HARD RULES:
                     {"role": "user", "content": prompt},
                 ],
                 temperature=0.92,
-                max_tokens=1100,
+                max_completion_tokens=1100,
             )
             if progress_callback:
                 progress_callback("✅ Lyrics generated 100%")
