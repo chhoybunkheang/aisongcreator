@@ -487,11 +487,15 @@ async def _send_lyrics_preview_and_actions(context, telegram_id, chat_id, lyrics
         if generated and not context.user_data.get("pasted_lyrics_mode")
         else None
     )
-    await context.bot.send_message(
+    await replace_flow_message(
+        context,
+        context.bot.send_message,
         chat_id=chat_id,
         text=_lyrics_preview_message(lyrics, generated=generated, title=title),
+        reply_markup=_lyrics_action_keyboard(),
+        state_key="song_flow_message_id",
     )
-    return await _show_lyrics_actions(context, chat_id)
+    return LYRICS_ACTION
 
 
 def _persist_current_lyrics(context, telegram_id):
