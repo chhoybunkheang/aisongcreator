@@ -1174,11 +1174,14 @@ HARD RULES:
                     {"role": "user", "content": prompt},
                 ],
                 temperature=1,
-                max_completion_tokens=1100,
+                max_completion_tokens=8000,
             )
+            content = response.choices[0].message.content
+            if not content or not content.strip():
+                raise Exception("Lyrics generation returned empty content. Please try again.")
             if progress_callback:
                 progress_callback("✅ Lyrics generated 100%")
-            return response.choices[0].message.content
+            return content
         except Exception as exc:
             last_error = exc
             if attempt == LYRICS_RETRY_ATTEMPTS or not _is_retryable_openai_error(exc):
