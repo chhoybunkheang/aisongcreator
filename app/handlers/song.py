@@ -398,6 +398,7 @@ def _lyrics_action_keyboard():
         [InlineKeyboardButton("✍️ Edit Lyrics", callback_data="lyrics_edit")],
         [InlineKeyboardButton("🎼 Continue", callback_data="lyrics_continue")],
         [InlineKeyboardButton("🔄 Regenerate", callback_data="lyrics_regenerate")],
+        [InlineKeyboardButton("💾 Save Lyrics", callback_data="lyrics_save")],
     ])
 
 
@@ -1158,6 +1159,15 @@ async def lyrics_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if query.data == "lyrics_continue":
         _persist_current_lyrics(context, query.from_user.id)
         return await _do_generate_mp3(query, context)
+
+    if query.data == "lyrics_save":
+        _persist_current_lyrics(context, query.from_user.id)
+        clear_flow_message_tracking(context, state_key="song_flow_message_id")
+        await query.edit_message_text(
+            "💾 Lyrics saved to your library!\n\n"
+            "You can find them in 📚 My Songs anytime."
+        )
+        return ConversationHandler.END
 
     if query.data == "lyrics_edit":
         await query.edit_message_text(
