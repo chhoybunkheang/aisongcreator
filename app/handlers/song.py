@@ -1562,10 +1562,11 @@ async def confirm_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not context.user_data.get("video_subtitle_prompt_pending"):
         if query.data == "no":
-            try:
-                await query.delete_message()
-            except Exception:
-                pass
+            user = get_user(query.from_user.id)
+            await query.edit_message_text(
+                f"✅ All done!\n\n💎 Remaining Credits: {user.credits}"
+            )
+            clear_flow_message_tracking(context, state_key="song_flow_message_id")
             return ConversationHandler.END
 
         context.user_data["video_animation_style"] = "none"
@@ -1583,10 +1584,12 @@ async def confirm_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
     subtitles_enabled = query.data == "yes"
     if subtitles_enabled and (not user or user.credits <= 10):
         from app.handlers.buycredits import _buy_credits_menu_markup
+        base_markup = _buy_credits_menu_markup(query.from_user.id)
+        skip_row = [[InlineKeyboardButton("⏭ Skip subtitles — create video without", callback_data="no")]]
         await query.edit_message_text(
             "❌ You need more than 10 credits to create a video with subtitles.\n\n"
-            "💎 Please add credits or create the video without subtitles.",
-            reply_markup=_buy_credits_menu_markup(query.from_user.id)
+            "💎 Please add credits, or skip subtitles and create the video now.",
+            reply_markup=InlineKeyboardMarkup(skip_row + base_markup.inline_keyboard)
         )
         return BUY_CREDITS
 
@@ -1596,11 +1599,16 @@ async def confirm_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if subtitles_enabled:
         subtitle_credit_reserved = deduct_credit(query.from_user.id, minimum_credits=11)
         if not subtitle_credit_reserved:
+            # Restore the flag so that 'no' (skip subtitles) in BUY_CREDITS
+            # correctly routes to video creation without subtitles.
+            context.user_data["video_subtitle_prompt_pending"] = True
             from app.handlers.buycredits import _buy_credits_menu_markup
+            base_markup = _buy_credits_menu_markup(query.from_user.id)
+            skip_row = [[InlineKeyboardButton("⏭ Skip subtitles — create video without", callback_data="no")]]
             await query.edit_message_text(
                 "❌ You need more than 10 credits to create a video with subtitles.\n\n"
-                "💎 Please add credits or create the video without subtitles.",
-                reply_markup=_buy_credits_menu_markup(query.from_user.id)
+                "💎 Please add credits, or skip subtitles and create the video now.",
+                reply_markup=InlineKeyboardMarkup(skip_row + base_markup.inline_keyboard)
             )
             return BUY_CREDITS
 
