@@ -815,6 +815,35 @@ _STYLE_PROFILES = {
         "tone": "heartfelt, smooth, natural-sounding Khmer everyday speech rhythm, emotionally direct",
         "rhyme": "Lines end on matching vowel sounds (e.g. ា រ ។ patterns). Lines 2 and 4 of each verse rhyme. 6-8 syllables per line.",
     },
+    "romvong": {  # matches រាំវង់ / romvong
+        "structure": "[Intro]\n[Verse 1]\n[Chorus]\n[Verse 2]\n[Chorus]\n[Final Chorus]",
+        "tone": (
+            "Gentle, flowing, melodic. Traditional Khmer Romvong circle-dance feeling. "
+            "Warm, nostalgic, romantic. Imagery of moonlight, rice fields, river, village festivals, flowers. "
+            "Lyrics should feel like they could be sung while walking in a slow circle with someone you love."
+        ),
+        "rhyme": (
+            "5-7 syllables per line strictly. "
+            "Lines 2 and 4 of every verse must share the same final vowel sound. "
+            "Chorus lines should all end on the same or similar vowel. "
+            "Rhythm must feel circular and gentle — no harsh stops, no short punchy breaks."
+        ),
+    },
+    "kantrum": {  # matches កន្ត្រឹម
+        "structure": "[Verse 1]\n[Chorus]\n[Verse 2]\n[Chorus]\n[Bridge]\n[Final Chorus]",
+        "tone": (
+            "Lively, upbeat, rhythmic folk energy from northeastern Cambodia. "
+            "Celebratory, communal, earthy. "
+            "Lyrics about village life, harvest, joy, longing, home. "
+            "Think call-and-response energy in the chorus. Fast-paced feel."
+        ),
+        "rhyme": (
+            "Short punchy lines: 4-6 syllables. "
+            "Strong end-vowel rhymes every 2 lines (AABB). "
+            "Chorus must feel like a group chant — short, repetitive, high energy. "
+            "The rhythm must drive forward like a drum beat, never slow down."
+        ),
+    },
     "tiktok remix": {
         "structure": "[Hook]\n[Verse 1]\n[Hook]\n[Verse 2]\n[Hook]\n[Outro]",
         "tone": "viral, punchy, fast-paced, instantly memorable within 15 seconds",
@@ -845,8 +874,31 @@ _LANGUAGE_INSTRUCTIONS = {
 }
 
 
-def _get_style_profile(style: str) -> dict:
+# Maps Khmer script names and romanized variants to the canonical profile key.
+_STYLE_ALIAS_MAP = {
+    # Romvong — various spellings users may type or select
+    "រាំវង់": "romvong",
+    "រាមវង់": "romvong",
+    "romvong": "romvong",
+    "rom vong": "romvong",
+    "raom vong": "romvong",
+    # Kantrum
+    "កន្ទ្រឹម": "kantrum",
+    "កន្ត្រឹម": "kantrum",
+    "kantrum": "kantrum",
+    "kan trum": "kantrum",
+    "khmer kantrum": "kantrum",
+}
+
+
+def _normalize_style(style: str) -> str:
+    """Resolve Khmer script names and common aliases to a canonical lowercase key."""
     key = (style or "").strip().lower()
+    return _STYLE_ALIAS_MAP.get(key, key)
+
+
+def _get_style_profile(style: str) -> dict:
+    key = _normalize_style(style)
     for profile_key, profile in _STYLE_PROFILES.items():
         if profile_key in key:
             return profile

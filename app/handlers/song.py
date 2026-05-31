@@ -869,7 +869,7 @@ async def choose_music_style(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if callback_value == "custom":
         await query.edit_message_text(
             "✍️ Type your music style.\n\n"
-            "Examples:\n- Remix\n- Rap\n- Romantic\n- Sad Song"
+            "Examples:\n- Remix\n- Rap\n- Romantic\n- Sad Song\n- រាមវង់\n- កន្ត្រឹម"
         )
         return MUSIC_STYLE
 
