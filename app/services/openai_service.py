@@ -1168,13 +1168,13 @@ HARD RULES:
                 )
 
             response = client.chat.completions.create(
-                model="gpt-5.5",
+                model="gpt-4.1",
                 messages=[
                     {"role": "system", "content": system_msg},
                     {"role": "user", "content": prompt},
                 ],
-                temperature=1,
-                max_completion_tokens=8000,
+                temperature=0.92,
+                max_tokens=1100,
             )
             content = response.choices[0].message.content
             if not content or not content.strip():
