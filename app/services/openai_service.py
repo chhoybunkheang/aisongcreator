@@ -1173,7 +1173,7 @@ HARD RULES:
                     {"role": "system", "content": system_msg},
                     {"role": "user", "content": prompt},
                 ],
-                temperature=0.92,
+                temperature=1,
                 max_completion_tokens=1100,
             )
             if progress_callback:
