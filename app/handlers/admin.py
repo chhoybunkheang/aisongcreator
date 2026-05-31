@@ -30,6 +30,10 @@ async def _approve_payment_request(message, bot, payment_request_id):
         await message.reply_text("❌ User not found.")
         return outcome
 
+    if payload is None:
+        await message.reply_text("❌ Could not approve this payment request.")
+        return outcome
+
     user_id = payload["telegram_id"]
     credits = payload["credits"]
 
@@ -93,10 +97,16 @@ async def approve_payment(
     context: ContextTypes.DEFAULT_TYPE
 ):
 
-    # Admin protection
-    if update.effective_user.id != ADMIN_ID:
+    message = update.message
+    effective_user = update.effective_user
 
-        await update.message.reply_text(
+    if message is None or effective_user is None:
+        return
+
+    # Admin protection
+    if effective_user.id != ADMIN_ID:
+
+        await message.reply_text(
             "❌ Access denied."
         )
 
@@ -107,16 +117,37 @@ async def approve_payment(
         # Command format:
         # /approve USER_ID CREDITS
 
-        user_id = context.args[0]
-        credits = int(context.args[1])
-        await _approve_payment_request(update.message, context.bot, user_id, credits)
-        await update.message.reply_text(
+        args = context.args or []
+        if len(args) != 2:
+            raise ValueError("invalid approve arguments")
+
+        user_id = args[0]
+        credits = int(args[1])
+        if credits <= 0:
+            raise ValueError("credits must be positive")
+
+        if not add_credits(user_id, credits):
+            await message.reply_text("❌ User not found.")
+            return
+
+        await message.reply_text(
             f"✅ Added {credits} credits to {user_id}"
         )
 
+        try:
+            await context.bot.send_message(
+                chat_id=user_id,
+                text=(
+                    f"✅ Payment approved!\n\n"
+                    f"💎 Added Credits: {credits}"
+                )
+            )
+        except Exception:
+            pass
+
     except Exception:
 
-        await update.message.reply_text(
+        await message.reply_text(
             "❌ Usage:\n/approve USER_ID CREDITS"
         )
 
@@ -127,13 +158,17 @@ async def approve_payment_callback(
 ):
 
     query = update.callback_query
+    effective_user = update.effective_user
 
-    if update.effective_user.id != ADMIN_ID:
+    if query is None or effective_user is None or query.message is None:
+        return
+
+    if effective_user.id != ADMIN_ID:
         await query.answer("Admin only.", show_alert=True)
         return
 
     try:
-        _prefix, payment_request_id = query.data.split("_", 1)
+        _prefix, payment_request_id = (query.data or "").split("_", 1)
     except (AttributeError, TypeError, ValueError):
         await query.answer("Invalid approval data.", show_alert=True)
         return
@@ -145,7 +180,7 @@ async def approve_payment_callback(
     await _mark_payment_request(
         query.message,
         "✅ Payment approved",
-        query.from_user.first_name,
+        getattr(query.from_user, "first_name", "Admin"),
     )
 
 
@@ -155,13 +190,17 @@ async def reject_payment_callback(
 ):
 
     query = update.callback_query
+    effective_user = update.effective_user
 
-    if update.effective_user.id != ADMIN_ID:
+    if query is None or effective_user is None or query.message is None:
+        return
+
+    if effective_user.id != ADMIN_ID:
         await query.answer("Admin only.", show_alert=True)
         return
 
     try:
-        _prefix, payment_request_id = query.data.split("_", 1)
+        _prefix, payment_request_id = (query.data or "").split("_", 1)
     except (AttributeError, TypeError, ValueError):
         await query.answer("Invalid rejection data.", show_alert=True)
         return
@@ -173,7 +212,7 @@ async def reject_payment_callback(
     await _mark_payment_request(
         query.message,
         "❌ Payment rejected",
-        query.from_user.first_name,
+        getattr(query.from_user, "first_name", "Admin"),
     )
 
 

@@ -560,6 +560,7 @@ def deduct_credit(telegram_id, minimum_credits=1):
 
     try:
         required_credits = max(int(minimum_credits or 1), 1)
+        # minimum_credits is an eligibility threshold; each generated asset costs 1 credit.
         updated_rows = (
             db.query(User)
             .filter(
