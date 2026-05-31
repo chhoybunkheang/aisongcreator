@@ -778,108 +778,175 @@ def generate_title(topic, mood):
 # -----------------------------------
 # GENERATE SONG LYRICS
 # -----------------------------------
-def generate_lyrics(style, topic, mood, language, description="", progress_callback=None):
 
-    extra_description = str(description or "").strip()
-    extra_description_block = (
-        f"- Extra Description: {extra_description}\n"
-        if extra_description else ""
+_STYLE_PROFILES = {
+    "rap": {
+        "structure": "[Hook]\n[Verse 1 - 16 bars]\n[Hook]\n[Verse 2 - 16 bars]\n[Bridge]\n[Outro]",
+        "tone": "confident, storytelling bars, wordplay, internal rhymes, multisyllabic end-rhymes",
+        "rhyme": "AABB with internal rhymes; hook lines should all end-rhyme",
+    },
+    "ballad": {
+        "structure": "[Verse 1]\n[Pre-Chorus]\n[Chorus]\n[Verse 2]\n[Pre-Chorus]\n[Chorus]\n[Bridge]\n[Final Chorus]",
+        "tone": "slow, emotionally raw, conversational, long breath phrases",
+        "rhyme": "ABAB or ABCB per verse; chorus AABB",
+    },
+    "k-pop": {
+        "structure": "[Intro]\n[Verse 1]\n[Pre-Chorus]\n[Chorus]\n[Verse 2]\n[Pre-Chorus]\n[Chorus]\n[Bridge]\n[Drop Chorus]",
+        "tone": "punchy, rhythmic, high energy, youthful, polished",
+        "rhyme": "AABB, tight syllable counts, short punchy lines",
+    },
+    "pop": {
+        "structure": "[Verse 1]\n[Pre-Chorus]\n[Chorus]\n[Verse 2]\n[Pre-Chorus]\n[Chorus]\n[Bridge]\n[Final Chorus]",
+        "tone": "relatable, catchy, hook-driven, radio-friendly",
+        "rhyme": "ABAB verse, AABB chorus",
+    },
+    "r&b": {
+        "structure": "[Intro]\n[Verse 1]\n[Chorus]\n[Verse 2]\n[Chorus]\n[Bridge]\n[Final Chorus]",
+        "tone": "smooth, sensual, soulful, groove-driven, introspective",
+        "rhyme": "loose ABCB; chorus should feel like a singalong hook",
+    },
+    "khmer remix": {
+        "structure": "[Intro]\n[Verse 1]\n[Chorus]\n[Verse 2]\n[Chorus]\n[Drop]\n[Final Chorus]",
+        "tone": "energetic, modern Khmer youth culture, TikTok-ready, danceable",
+        "rhyme": "AABB, short punchy lines, chorus must be ultra-catchy",
+    },
+    "tiktok remix": {
+        "structure": "[Hook]\n[Verse 1]\n[Hook]\n[Verse 2]\n[Hook]\n[Outro]",
+        "tone": "viral, punchy, fast-paced, instantly memorable within 15 seconds",
+        "rhyme": "AABB; hook must be a single repeatable phrase",
+    },
+}
+
+_DEFAULT_PROFILE = {
+    "structure": "[Intro]\n[Verse 1]\n[Chorus]\n[Verse 2]\n[Bridge]\n[Final Chorus]\n[Ending]",
+    "tone": "emotional, modern, professional, singable",
+    "rhyme": "ABAB verse, AABB chorus",
+}
+
+
+def _get_style_profile(style: str) -> dict:
+    key = (style or "").strip().lower()
+    for profile_key, profile in _STYLE_PROFILES.items():
+        if profile_key in key:
+            return profile
+    return _DEFAULT_PROFILE
+
+
+def _generate_song_brief(style, topic, mood, language, description, progress_callback):
+    """Phase 1: generate a focused creative brief before writing lyrics."""
+    description_line = f'\nUser\'s specific situation: "{description}"' if description else ""
+
+    brief_prompt = (
+        f"You are a creative director briefing a songwriter for a {style} song in {language}.\n"
+        f"Topic: {topic}. Mood: {mood}.{description_line}\n\n"
+        f"In exactly 4 short points, define:\n"
+        f"1. The SPECIFIC story or situation the song is about (concrete, not abstract — name a real moment, place, or detail)\n"
+        f"2. The central IMAGE or METAPHOR that will run through every section\n"
+        f"3. The EMOTIONAL ARC: how the feeling changes from verse 1 → chorus → bridge → final chorus\n"
+        f"4. The HOOK PHRASE: one killer line (4-8 words) that the listener will remember forever\n\n"
+        f"Be specific. No generic ideas. No clichés."
     )
 
-    prompt = f"""
-    You are a professional songwriter.
+    if progress_callback:
+        progress_callback("⏳ Generating lyrics...\nCrafting song concept...")
 
-    Create a COMPLETE high-quality song.
+    response = client.chat.completions.create(
+        model="gpt-4.1-mini",
+        messages=[
+            {"role": "system", "content": "You are a sharp creative director for hit songwriters. You give brutally specific, non-generic briefs."},
+            {"role": "user", "content": brief_prompt},
+        ],
+        temperature=0.85,
+        max_tokens=220,
+    )
+    return response.choices[0].message.content.strip()
 
-    Song Information:
-    - Style: {style}
-    - Topic: {topic}
-    - Mood: {mood}
-    - Language: {language}
-    {extra_description_block}
 
-    Requirements:
-    - Write ALL lyrics strictly in {language} language only
-    - Do NOT mix any other language into the lyrics
-    - Create emotional and memorable lyrics
-    - Make the chorus catchy
-    - Use natural wording
-    - Make it sound modern and professional
-    - Add strong storytelling
-    - Avoid repeating lines too much
-    - Make it suitable for singing
-    - Use clean formatting
-    - Keep section headers in English (e.g. [Verse 1], [Chorus]) but the lyrics content must be in {language}
+def generate_lyrics(style, topic, mood, language, description="", progress_callback=None):
 
-    Song Structure:
-    [Intro]
-    [Verse 1]
-    [Chorus]
-    [Verse 2]
-    [Bridge]
-    [Final Chorus]
-    [Ending]
-
-    Special Instructions:
-
-    If style is Khmer Remix:
-    - make the chorus energetic
-    - use modern Khmer youth style
-    - suitable for TikTok remix
-    - make it exciting and danceable
-
-    If mood is sad:
-    - use emotional heartbreak wording
-
-    If mood is happy:
-    - use uplifting and exciting wording
-
-    If mood is romantic:
-    - make lyrics sweet and emotional
-
-    If Extra Description is provided:
-    - use it to shape the story, wording, feeling, and details of the lyrics
-    - keep the lyrics aligned with the user's requested situation and emotion
-    """
+    description = str(description or "").strip()
+    profile = _get_style_profile(style)
 
     last_error = None
 
     if progress_callback:
         progress_callback("⏳ Generating lyrics...\nPreparing prompt...")
 
+    # Phase 1 — creative brief
+    try:
+        brief = _generate_song_brief(style, topic, mood, language, description, progress_callback)
+    except Exception:
+        # If brief generation fails, fall back to a minimal anchor so Phase 2 still runs
+        brief = f"A {mood} {style} song about {topic} in {language}."
+
+    # Build the description anchor — give it strong weight when provided
+    if description:
+        story_anchor = (
+            f"\nCRITICAL — The user's exact situation:\n"
+            f'"{description}"\n'
+            f"Every section must be grounded in this. Use specific details, feelings, and moments from it.\n"
+            f"Do NOT write generic lyrics that could apply to anyone else.\n"
+        )
+    else:
+        story_anchor = ""
+
+    prompt = f"""You are an award-winning songwriter writing a {style} song in {language}.
+
+CREATIVE BRIEF (your anchor for the whole song):
+{brief}
+{story_anchor}
+SONG DETAILS:
+- Style: {style}
+- Topic: {topic}
+- Mood: {mood}
+- Language: {language}
+
+TONE & APPROACH: {profile["tone"]}
+RHYME SCHEME: {profile["rhyme"]}
+
+SONGWRITING ORDER — follow this to build maximum impact:
+1. Write the [Chorus] / [Hook] FIRST — this is the most important part. It must contain the hook phrase from the brief.
+2. Write [Verse 1] to set up the emotion that leads INTO the chorus.
+3. Write [Verse 2] to deepen the story with new detail or perspective.
+4. Write the [Bridge] as an emotional peak or unexpected twist.
+5. Fill in [Intro] and [Ending] last.
+
+STRUCTURE TO OUTPUT:
+{profile["structure"]}
+
+HARD RULES:
+- ALL lyrics must be in {language} only. Zero mixing of other languages.
+- Section headers stay in English: [Verse 1], [Chorus], etc.
+- Verse lines 2 and 4 must rhyme. Chorus lines must end-rhyme per the scheme above.
+- No filler lines ("la la la", "oh oh oh") unless it's a deliberate hook device.
+- No line may be a cliché ("you light up my world", "dancing in the rain") — replace with the specific imagery from the brief.
+- Each verse must contain at least one concrete detail (a name, place, object, or specific moment).
+- The chorus must be short enough to memorize in one listen (max 4–6 lines).
+"""
+
     for attempt in range(1, LYRICS_RETRY_ATTEMPTS + 1):
         try:
             if progress_callback:
                 if attempt == 1:
-                    progress_callback("⏳ Generating lyrics...\nSending request to lyrics engine...")
+                    progress_callback("⏳ Generating lyrics...\nWriting song...")
                 else:
-                    progress_callback(f"⏳ Generating lyrics...\nRetrying request ({attempt}/{LYRICS_RETRY_ATTEMPTS})...")
+                    progress_callback(f"⏳ Generating lyrics...\nRetrying ({attempt}/{LYRICS_RETRY_ATTEMPTS})...")
 
             response = client.chat.completions.create(
-                model="gpt-4.1-mini",
+                model="gpt-4.1",
                 messages=[
                     {
                         "role": "system",
-                        "content": """
-                        You are an award-winning songwriter
-                        and music producer.
-
-                        You specialize in:
-                        - emotional lyrics
-                        - catchy choruses
-                        - modern song structures
-                        - viral music styles
-                        - Khmer remix music
-                        - TikTok-style songs
-                        """
+                        "content": (
+                            "You are an award-winning songwriter. "
+                            "You write specific, vivid, emotionally authentic lyrics. "
+                            "You never use clichés. Every line earns its place."
+                        ),
                     },
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
+                    {"role": "user", "content": prompt},
                 ],
-                temperature=0.9,
-                max_tokens=800
+                temperature=0.92,
+                max_tokens=1000,
             )
             if progress_callback:
                 progress_callback("✅ Lyrics generated 100%")
