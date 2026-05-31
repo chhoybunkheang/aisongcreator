@@ -715,6 +715,9 @@ async def choose_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 InlineKeyboardButton("📤 Upload MP3/Video", callback_data="type_remixup"),
                 InlineKeyboardButton("🔗 YouTube Link", callback_data="type_remixyt"),
             ],
+            [
+                InlineKeyboardButton("📋 Paste Lyrics", callback_data="type_remixpaste"),
+            ],
         ])
         await query.edit_message_text(
             "🔄 *Remix Language*\n\nChoose the style reference source:",
@@ -758,6 +761,14 @@ async def choose_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "_e.g. https://youtu.be/abc123_",
             parse_mode="Markdown",
         )
+        return ConversationHandler.END
+
+    if query.data == "type_remixpaste":
+        context.user_data.pop("awaiting_remix_upload", None)
+        context.user_data.pop("remix_ext_ref", None)
+        context.user_data.pop("remix_ext_lyrics", None)
+        context.user_data["awaiting_remix_lyrics"] = True
+        await query.edit_message_text("📋 Please paste the lyrics you want to remix:")
         return ConversationHandler.END
 
     if query.data == "type_new":

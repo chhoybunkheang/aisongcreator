@@ -58,6 +58,7 @@ from app.utils.helpers import (
     start_timed_progress_message,
     stop_progress_message,
 )
+from app.utils.validators import validate_lyrics
 
 MP3_QUEUE_SECONDS = 50
 COVER_QUEUE_SECONDS = 40
@@ -1552,9 +1553,114 @@ async def ms_remix_src_yt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+async def ms_receive_remix_lyrics(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Receive pasted lyrics and ask for the audio reference source."""
+    if not context.user_data.get("awaiting_remix_lyrics"):
+        return
+
+    lyrics, error_message = validate_lyrics(update.message.text)
+    if error_message:
+        await update.message.reply_text(error_message)
+        return
+
+    context.user_data.pop("awaiting_remix_lyrics", None)
+    context.user_data.pop("remix_ext_ref", None)
+    context.user_data["remix_ext_lyrics"] = lyrics
+
+    markup = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("📚 From My Library", callback_data="rempaste_lib"),
+        ],
+        [
+            InlineKeyboardButton("📤 Upload MP3/Video", callback_data="rempaste_up"),
+            InlineKeyboardButton("🔗 YouTube Link", callback_data="rempaste_yt"),
+        ],
+    ])
+    await update.message.reply_text(
+        "🎵 *Choose the style reference source:*",
+        parse_mode="Markdown",
+        reply_markup=markup,
+    )
+
+
+async def ms_remix_paste_src_lib(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show saved MP3 songs as reference choices for pasted lyrics."""
+    query = update.callback_query
+    await query.answer()
+
+    songs = get_user_songs(query.from_user.id)
+    mp3_songs = [s for s in songs if s.mp3_path and os.path.exists(str(s.mp3_path))]
+    if not mp3_songs:
+        await query.message.reply_text("You have no saved MP3 songs to pick from.")
+        return
+
+    buttons = []
+    for song in mp3_songs[:20]:
+        label = (song.topic or f"Song #{song.id}")[:30]
+        buttons.append([
+            InlineKeyboardButton(f"🎵 {label}", callback_data=f"rempaste_sel_{song.id}")
+        ])
+
+    await query.message.reply_text(
+        "📚 *Pick a reference MP3:*",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(buttons),
+    )
+
+
+async def ms_remix_paste_src_sel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Use a saved MP3 as the reference for pasted lyrics."""
+    query = update.callback_query
+    await query.answer()
+    ref_id = int(query.data.split("_")[2])
+
+    ref_song = get_song_by_id(ref_id)
+    if (
+        not ref_song
+        or ref_song.user_id != query.from_user.id
+        or not ref_song.mp3_path
+        or not os.path.exists(str(ref_song.mp3_path))
+    ):
+        await query.message.reply_text("Reference MP3 not found.")
+        return
+
+    context.user_data["remix_ext_ref"] = str(ref_song.mp3_path)
+    await _show_remix_ext_language_picker(context.bot, query.message.chat_id)
+
+
+async def ms_remix_paste_src_up(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Ask for an uploaded audio/video reference for pasted lyrics."""
+    query = update.callback_query
+    await query.answer()
+    context.user_data["awaiting_remix_upload"] = "paste"
+    await query.message.reply_text(
+        "📤 Please send your reference MP3 file or video now.\n\n"
+        "_Send it as a file (Document), audio message, or video._",
+        parse_mode="Markdown",
+    )
+
+
+async def ms_remix_paste_src_yt(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Ask for a YouTube audio reference for pasted lyrics."""
+    query = update.callback_query
+    await query.answer()
+    context.user_data["awaiting_remix_upload"] = "paste"
+    await query.message.reply_text(
+        "🔗 Please paste a YouTube link for the reference track:\n\n"
+        "_e.g. https://youtu.be/abc123_",
+        parse_mode="Markdown",
+    )
+
+
 async def _process_remix_ref_mp3(message, context, dest, song_id):
     """Shared logic after an MP3 (or extracted audio) is ready for remixing."""
     del context.user_data["awaiting_remix_upload"]
+
+    # "paste" mode already has explicit lyrics, so skip transcription.
+    if song_id == "paste":
+        context.user_data["remix_ext_ref"] = dest
+        await _show_remix_ext_language_picker(context.bot, message.chat_id)
+        return
 
     # "new" mode — transcribe lyrics from the uploaded audio
     if song_id == "new":
@@ -1590,6 +1696,10 @@ async def _process_remix_ref_mp3(message, context, dest, song_id):
 
 async def ms_receive_remix_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Receive a YouTube URL as remix reference audio."""
+    if context.user_data.get("awaiting_remix_lyrics"):
+        await ms_receive_remix_lyrics(update, context)
+        return
+
     song_id = context.user_data.get("awaiting_remix_upload")
     if not song_id:
         return
@@ -1764,7 +1874,7 @@ async def _show_remix_ext_language_picker(bot, chat_id):
 
 
 async def ms_remix_ext_generate(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Generate remix for an externally uploaded MP3 whose lyrics were auto-transcribed."""
+    """Generate remix for an external MP3 with transcribed or pasted lyrics."""
     query = update.callback_query
     await query.answer()
 
@@ -1978,6 +2088,10 @@ ms_remix_src_lib_handler = CallbackQueryHandler(ms_remix_src_lib, pattern=r"^rem
 ms_remix_src_sel_handler = CallbackQueryHandler(ms_remix_src_sel, pattern=r"^remsrc_sel_\d+_\d+$")
 ms_remix_src_up_handler = CallbackQueryHandler(ms_remix_src_up, pattern=r"^remsrc_up_\d+$")
 ms_remix_src_yt_handler = CallbackQueryHandler(ms_remix_src_yt, pattern=r"^remsrc_yt_\d+$")
+ms_remix_paste_src_lib_handler = CallbackQueryHandler(ms_remix_paste_src_lib, pattern=r"^rempaste_lib$")
+ms_remix_paste_src_sel_handler = CallbackQueryHandler(ms_remix_paste_src_sel, pattern=r"^rempaste_sel_\d+$")
+ms_remix_paste_src_up_handler = CallbackQueryHandler(ms_remix_paste_src_up, pattern=r"^rempaste_up$")
+ms_remix_paste_src_yt_handler = CallbackQueryHandler(ms_remix_paste_src_yt, pattern=r"^rempaste_yt$")
 ms_remix_audio_handler = MessageHandler(filters.AUDIO | filters.Document.MimeType("audio/mpeg"), ms_receive_remix_audio)
 ms_remix_url_handler = MessageHandler(filters.TEXT & ~filters.COMMAND, ms_receive_remix_url)
 ms_remix_self_handler = CallbackQueryHandler(ms_remix_self, pattern=r"^remixself_\d+$")

@@ -110,6 +110,10 @@ def main():
         ms_remix_gen_handler,
         ms_remix_lang_handler,
         ms_remix_lyrics_handler,
+        ms_remix_paste_src_lib_handler,
+        ms_remix_paste_src_sel_handler,
+        ms_remix_paste_src_up_handler,
+        ms_remix_paste_src_yt_handler,
         ms_remix_self_handler,
         ms_remix_src_lib_handler,
         ms_remix_src_sel_handler,
@@ -209,6 +213,10 @@ def main():
     app.add_handler(ms_remix_src_sel_handler)
     app.add_handler(ms_remix_src_up_handler)
     app.add_handler(ms_remix_src_yt_handler)
+    app.add_handler(ms_remix_paste_src_lib_handler)
+    app.add_handler(ms_remix_paste_src_sel_handler)
+    app.add_handler(ms_remix_paste_src_up_handler)
+    app.add_handler(ms_remix_paste_src_yt_handler)
     app.add_handler(ms_remix_audio_handler)
     app.add_handler(ms_remix_url_handler)
     app.add_handler(ms_remix_self_handler)
