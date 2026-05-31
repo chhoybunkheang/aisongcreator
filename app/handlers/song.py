@@ -271,9 +271,40 @@ def _music_style_keyboard():
         ],
         [
             InlineKeyboardButton("🤘 Rock", callback_data="mstyle_Rock"),
-            InlineKeyboardButton("🇰🇭 Khmer Remix", callback_data="mstyle_Khmer Remix"),
+            InlineKeyboardButton("🇰🇭 Khmer Styles ▶", callback_data="mstyle_khmer_menu"),
         ],
         [InlineKeyboardButton("✍️ Type My Own", callback_data="mstyle_custom")],
+        [InlineKeyboardButton("❌ Cancel", callback_data="cancel_flow")],
+    ])
+
+
+def _khmer_style_keyboard():
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("🎼 រាំវង់", callback_data="mstyle_Romvong"),
+            InlineKeyboardButton("🎶 រាំកេច", callback_data="mstyle_Romkech"),
+        ],
+        [
+            InlineKeyboardButton("🌊 សារ៉ាវ៉ាន់", callback_data="mstyle_Saravann"),
+            InlineKeyboardButton("🥁 កន្ទ្រឹម", callback_data="mstyle_Kantrum"),
+        ],
+        [
+            InlineKeyboardButton("🪗 ចាប៉ី", callback_data="mstyle_Chapei"),
+            InlineKeyboardButton("🇰🇭 Remix ខ្មែរ", callback_data="mstyle_Khmer Remix"),
+        ],
+        [
+            InlineKeyboardButton("🎵 ប៉ុបខ្មែរ", callback_data="mstyle_Khmer Pop"),
+            InlineKeyboardButton("🎤 រ៉ែបខ្មែរ", callback_data="mstyle_Khmer Rap"),
+        ],
+        [
+            InlineKeyboardButton("💜 R&B ខ្មែរ", callback_data="mstyle_Khmer R&B"),
+            InlineKeyboardButton("🎸 ស្លូរ៉ុក", callback_data="mstyle_Khmer Slow Rock"),
+        ],
+        [
+            InlineKeyboardButton("💃 ចាឆា", callback_data="mstyle_Cha-cha"),
+            InlineKeyboardButton("🌹 បូឡេរ៉ូ", callback_data="mstyle_Bolero"),
+        ],
+        [InlineKeyboardButton("◀️ Back", callback_data="mstyle_khmer_back")],
         [InlineKeyboardButton("❌ Cancel", callback_data="cancel_flow")],
     ])
 
@@ -870,6 +901,22 @@ async def choose_music_style(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await query.edit_message_text(
             "✍️ Type your music style.\n\n"
             "Examples:\n- Remix\n- Rap\n- Romantic\n- Sad Song\n- រាមវង់\n- កន្ត្រឹម"
+        )
+        return MUSIC_STYLE
+
+    if callback_value == "khmer_menu":
+        await query.edit_message_text(
+            "🇰🇭 *Khmer Music Styles*\n\nChoose your style:",
+            parse_mode="Markdown",
+            reply_markup=_khmer_style_keyboard(),
+        )
+        return MUSIC_STYLE
+
+    if callback_value == "khmer_back":
+        await query.edit_message_text(
+            "🎵 *Choose your music style:*",
+            parse_mode="Markdown",
+            reply_markup=_music_style_keyboard(),
         )
         return MUSIC_STYLE
 

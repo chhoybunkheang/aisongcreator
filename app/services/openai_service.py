@@ -780,6 +780,134 @@ def generate_title(topic, mood):
 # -----------------------------------
 
 _STYLE_PROFILES = {
+    # ── Specific Khmer styles MUST come before generic "khmer", "pop", "rap", "r&b"
+    # ── so that substring profile matching picks the right one.
+    "khmer remix": {
+        "structure": "[Intro]\n[Verse 1]\n[Chorus]\n[Verse 2]\n[Chorus]\n[Drop]\n[Final Chorus]",
+        "tone": "energetic, modern Khmer youth street culture, TikTok-ready, danceable, mix of emotion and hype",
+        "rhyme": "Lines end on matching vowel sounds. Each line 6-8 syllables. Chorus repeatable in one breath.",
+    },
+    "khmer pop": {
+        "structure": "[Verse 1]\n[Pre-Chorus]\n[Chorus]\n[Verse 2]\n[Pre-Chorus]\n[Chorus]\n[Bridge]\n[Final Chorus]",
+        "tone": "Modern Khmer pop radio style. Catchy, polished, emotional. Young Cambodian urban feel. Relatable everyday situations.",
+        "rhyme": "End-vowel rhymes lines 2 and 4. Chorus AABB vowel pattern. 6-8 syllables per line.",
+    },
+    "khmer rap": {
+        "structure": "[Hook]\n[Verse 1 - 16 bars]\n[Hook]\n[Verse 2 - 16 bars]\n[Bridge]\n[Outro]",
+        "tone": "Confident Khmer hip-hop. Street-smart Phnom Penh storytelling. Pride in Khmer identity, personal struggle, wordplay on Khmer syllables.",
+        "rhyme": "4-6 syllables per line. Strong end-vowel rhymes every 2 lines (AABB). Internal rhymes welcome. Hook must be short and punchy.",
+    },
+    "khmer r&b": {
+        "structure": "[Intro]\n[Verse 1]\n[Chorus]\n[Verse 2]\n[Chorus]\n[Bridge]\n[Final Chorus]",
+        "tone": "Smooth, soulful, urban Khmer. Romantic and introspective. Phnom Penh city night-life feeling. Cafe lights, late-night phone calls.",
+        "rhyme": "6-8 syllables per line. Loose end-vowel rhymes lines 2 and 4. Chorus is the emotional peak — short, singable, memorable.",
+    },
+    "khmer slow rock": {
+        "structure": "[Verse 1]\n[Pre-Chorus]\n[Chorus]\n[Verse 2]\n[Pre-Chorus]\n[Chorus]\n[Guitar Bridge]\n[Final Chorus]",
+        "tone": "Emotional Khmer power ballad. Heartbreak, longing, dramatic release. Build to a high-note final chorus. Think of classic Khmer love tragedy.",
+        "rhyme": "6-8 syllables per line. End-vowel rhymes lines 2 and 4 in verses. All chorus lines end-rhyme for maximum singalong impact.",
+    },
+    "khmer": {
+        "structure": "[Verse 1]\n[Chorus]\n[Verse 2]\n[Chorus]\n[Bridge]\n[Final Chorus]",
+        "tone": "Heartfelt, smooth, natural-sounding Khmer everyday speech rhythm, emotionally direct",
+        "rhyme": "End-vowel sounds (e.g. ា រ ។ patterns). Lines 2 and 4 of each verse rhyme. 6-8 syllables per line.",
+    },
+    # ── Traditional & regional Khmer ──────────────────────────────────────────
+    "romvong": {
+        "structure": "[Intro]\n[Verse 1]\n[Chorus]\n[Verse 2]\n[Chorus]\n[Final Chorus]",
+        "tone": (
+            "Gentle, flowing, melodic. Traditional Khmer Romvong circle-dance feeling. "
+            "Warm, nostalgic, romantic. Imagery of moonlight, rice fields, river, village festivals, flowers. "
+            "Lyrics should feel like they could be sung while walking in a slow circle with someone you love."
+        ),
+        "rhyme": (
+            "5-7 syllables per line strictly. "
+            "Lines 2 and 4 of every verse must share the same final vowel sound. "
+            "Chorus lines should all end on the same or similar vowel. "
+            "Rhythm must feel circular and gentle — no harsh stops, no short punchy breaks."
+        ),
+    },
+    "romkech": {
+        "structure": "[Intro]\n[Verse 1]\n[Chorus]\n[Verse 2]\n[Chorus]\n[Final Chorus]",
+        "tone": (
+            "Lively, bouncy, joyful. Khmer Romkech circle-dance — more upbeat and playful than Romvong. "
+            "Social, celebratory, party and festival atmosphere. Light flirtation and teasing energy. "
+            "Think of dancing at a Khmer New Year festival."
+        ),
+        "rhyme": (
+            "5-7 syllables per line. End-vowel rhymes lines 2 and 4. "
+            "Faster tempo feel — lines should be springy and energetic. "
+            "Chorus must be instantly memorable and easy to clap along to."
+        ),
+    },
+    "saravann": {
+        "structure": "[Verse 1]\n[Chorus]\n[Verse 2]\n[Chorus]\n[Bridge]\n[Final Chorus]",
+        "tone": (
+            "Slow, deeply melancholic, nostalgic. Sadness of separation and longing. "
+            "Provincial Khmer countryside feel — rice paddies, dusty roads, sunset over the fields. "
+            "Yearning for home or a lost love. Tears and faded memories."
+        ),
+        "rhyme": (
+            "6-8 syllables per line. End-vowel rhymes lines 2 and 4. "
+            "Long drawn-out vowel sounds preferred — they suit the slow, aching delivery. "
+            "Do not rush any line. Let every syllable breathe."
+        ),
+    },
+    "kantrum": {
+        "structure": "[Verse 1]\n[Chorus]\n[Verse 2]\n[Chorus]\n[Bridge]\n[Final Chorus]",
+        "tone": (
+            "Lively, upbeat, rhythmic folk energy from northeastern Cambodia. "
+            "Celebratory, communal, earthy. Lyrics about village life, harvest, joy, longing, home. "
+            "Call-and-response energy in the chorus."
+        ),
+        "rhyme": (
+            "Short punchy lines: 4-6 syllables. Strong end-vowel rhymes every 2 lines (AABB). "
+            "Chorus must feel like a group chant — short, repetitive, high energy. "
+            "The rhythm must drive forward like a drum beat, never slow down."
+        ),
+    },
+    "chapei": {
+        "structure": "[Intro - storytelling verse]\n[Verse 1]\n[Refrain]\n[Verse 2]\n[Refrain]\n[Verse 3]\n[Closing]",
+        "tone": (
+            "Storytelling ballad in the tradition of Cambodian Chapei Dang Veng lute. "
+            "Wise, poetic, philosophical — or humorous and witty. "
+            "First-person narrative voice, like a griot recounting a life story or moral lesson. "
+            "Each verse reveals a new chapter of the story."
+        ),
+        "rhyme": (
+            "6-8 syllables per line. ABAB vowel rhyme scheme (lines 1&3 rhyme, lines 2&4 rhyme). "
+            "Refrain is 2-4 short memorable lines that summarize the lesson or feeling. "
+            "Rhythm should feel like spoken poetry set to a gentle plucked string beat."
+        ),
+    },
+    # ── Dance styles (language-agnostic, work well for Khmer too) ────────────
+    "cha-cha": {
+        "structure": "[Intro]\n[Verse 1]\n[Chorus]\n[Verse 2]\n[Chorus]\n[Final Chorus]",
+        "tone": (
+            "Upbeat, playful, dance-floor energy. Flirtatious, fun, light-hearted. "
+            "Festive and social — wedding reception, family gathering, Khmer New Year party. "
+            "Every line should make you want to move your feet."
+        ),
+        "rhyme": (
+            "5-6 syllables per line. AABB end-vowel rhymes. "
+            "Short, bouncy lines that match the cha-cha-cha syncopated rhythm. "
+            "Chorus must be the kind of thing everyone sings together."
+        ),
+    },
+    "bolero": {
+        "structure": "[Verse 1]\n[Chorus]\n[Verse 2]\n[Chorus]\n[Bridge]\n[Final Chorus]",
+        "tone": (
+            "Classic romantic bolero style — elegant, timeless, deeply yearning. "
+            "Evokes the golden era of Cambodian cinema (1960s-1980s). "
+            "Longing for love, remembrance, a bittersweet past. Sophisticated and unhurried."
+        ),
+        "rhyme": (
+            "7-8 syllables per line. End-vowel rhymes lines 2 and 4. "
+            "Long, smooth melodic phrases. No rush — let each line breathe fully. "
+            "The bridge should introduce a gentle emotional turn."
+        ),
+    },
+    # ── General / International styles ───────────────────────────────────────
     "rap": {
         "structure": "[Hook]\n[Verse 1 - 16 bars]\n[Hook]\n[Verse 2 - 16 bars]\n[Bridge]\n[Outro]",
         "tone": "confident, storytelling bars, wordplay, internal rhymes, multisyllabic end-rhymes",
@@ -804,45 +932,6 @@ _STYLE_PROFILES = {
         "structure": "[Intro]\n[Verse 1]\n[Chorus]\n[Verse 2]\n[Chorus]\n[Bridge]\n[Final Chorus]",
         "tone": "smooth, sensual, soulful, groove-driven, introspective",
         "rhyme": "loose ABCB; chorus should feel like a singalong hook",
-    },
-    "khmer remix": {
-        "structure": "[Intro]\n[Verse 1]\n[Chorus]\n[Verse 2]\n[Chorus]\n[Drop]\n[Final Chorus]",
-        "tone": "energetic, modern Khmer youth street culture, TikTok-ready, danceable, mix of emotion and hype",
-        "rhyme": "Lines end on matching vowel sounds (not English consonant rhymes). Each line 6-8 syllables. Chorus repeatable in one breath.",
-    },
-    "khmer": {
-        "structure": "[Verse 1]\n[Chorus]\n[Verse 2]\n[Chorus]\n[Bridge]\n[Final Chorus]",
-        "tone": "heartfelt, smooth, natural-sounding Khmer everyday speech rhythm, emotionally direct",
-        "rhyme": "Lines end on matching vowel sounds (e.g. ា រ ។ patterns). Lines 2 and 4 of each verse rhyme. 6-8 syllables per line.",
-    },
-    "romvong": {  # matches រាំវង់ / romvong
-        "structure": "[Intro]\n[Verse 1]\n[Chorus]\n[Verse 2]\n[Chorus]\n[Final Chorus]",
-        "tone": (
-            "Gentle, flowing, melodic. Traditional Khmer Romvong circle-dance feeling. "
-            "Warm, nostalgic, romantic. Imagery of moonlight, rice fields, river, village festivals, flowers. "
-            "Lyrics should feel like they could be sung while walking in a slow circle with someone you love."
-        ),
-        "rhyme": (
-            "5-7 syllables per line strictly. "
-            "Lines 2 and 4 of every verse must share the same final vowel sound. "
-            "Chorus lines should all end on the same or similar vowel. "
-            "Rhythm must feel circular and gentle — no harsh stops, no short punchy breaks."
-        ),
-    },
-    "kantrum": {  # matches កន្ត្រឹម
-        "structure": "[Verse 1]\n[Chorus]\n[Verse 2]\n[Chorus]\n[Bridge]\n[Final Chorus]",
-        "tone": (
-            "Lively, upbeat, rhythmic folk energy from northeastern Cambodia. "
-            "Celebratory, communal, earthy. "
-            "Lyrics about village life, harvest, joy, longing, home. "
-            "Think call-and-response energy in the chorus. Fast-paced feel."
-        ),
-        "rhyme": (
-            "Short punchy lines: 4-6 syllables. "
-            "Strong end-vowel rhymes every 2 lines (AABB). "
-            "Chorus must feel like a group chant — short, repetitive, high energy. "
-            "The rhythm must drive forward like a drum beat, never slow down."
-        ),
     },
     "tiktok remix": {
         "structure": "[Hook]\n[Verse 1]\n[Hook]\n[Verse 2]\n[Hook]\n[Outro]",
@@ -876,18 +965,53 @@ _LANGUAGE_INSTRUCTIONS = {
 
 # Maps Khmer script names and romanized variants to the canonical profile key.
 _STYLE_ALIAS_MAP = {
-    # Romvong — various spellings users may type or select
+    # Romvong
     "រាំវង់": "romvong",
     "រាមវង់": "romvong",
     "romvong": "romvong",
     "rom vong": "romvong",
     "raom vong": "romvong",
+    # Romkech
+    "រាំកេច": "romkech",
+    "romkech": "romkech",
+    "rom kech": "romkech",
+    # Saravann
+    "សារ៉ាវ៉ាន់": "saravann",
+    "saravann": "saravann",
+    "saravane": "saravann",
+    "saravane music": "saravann",
+    # Chapei
+    "ចាប៉ី": "chapei",
+    "chapei": "chapei",
+    "chapey": "chapei",
     # Kantrum
     "កន្ទ្រឹម": "kantrum",
     "កន្ត្រឹម": "kantrum",
     "kantrum": "kantrum",
     "kan trum": "kantrum",
     "khmer kantrum": "kantrum",
+    # Khmer Pop
+    "ប៉ុបខ្មែរ": "khmer pop",
+    "khmer pop": "khmer pop",
+    # Khmer Rap
+    "រ៉ែបខ្មែរ": "khmer rap",
+    "khmer rap": "khmer rap",
+    # Khmer R&B
+    "r&b ខ្មែរ": "khmer r&b",
+    "khmer r&b": "khmer r&b",
+    "khmer rnb": "khmer r&b",
+    # Khmer Slow Rock
+    "ស្លូរ៉ុក": "khmer slow rock",
+    "khmer slow rock": "khmer slow rock",
+    "slow rock": "khmer slow rock",
+    # Cha-cha
+    "ចាឆា": "cha-cha",
+    "cha-cha": "cha-cha",
+    "chacha": "cha-cha",
+    "cha cha": "cha-cha",
+    # Bolero
+    "បូឡេរ៉ូ": "bolero",
+    "bolero": "bolero",
 }
 
 
